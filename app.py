@@ -25,7 +25,7 @@ import wan_video
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.25.12"
+BUILD_ID = "2026.09.25.13"
 JOBS_DIR = Path.home() / "Movies" / "Nisha Motion Graphics"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -646,7 +646,7 @@ def render_abstract_job(job_id: str, prompt: str, image_data: bytes,
                                 kind="abstract", video=f"/files/{job_id}/animation.mp4",
                                 filename=str(output), duration=None,
                                 quality=("ComfyUI workflow output" if workflow is not None else
-                                          "Wan 2.2 MLX · " + preset if backend == "wan" else "LTX 2B local · " + preset),
+                                          "Wan 2.2 MLX · " + wan_video.LABELS[preset] if backend == "wan" else "LTX 2B local · " + preset),
                                 details=log_path.read_text(encoding="utf-8"),
                                 log_url=f"/logs/{job_id}", plan_source=provider)
     except Exception as exc:
@@ -682,7 +682,7 @@ def parse_abstract_request(content_type: str, body: bytes) -> tuple[str, bytes, 
     backend = fields.get("backend", b"ltx").decode("utf-8").strip()
     if backend not in {"ltx", "wan"}:
         raise ValueError("Choose a valid local video backend.")
-    if preset not in ({"preview", "detail"} if backend == "wan" else {"preview", "detail", "compatibility"}):
+    if preset not in (wan_video.PRESETS if backend == "wan" else {"preview", "detail", "compatibility"}):
         raise ValueError("Choose a valid local video preset.")
     workflow = None
     if raw_workflow:
