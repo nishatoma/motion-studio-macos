@@ -1,6 +1,6 @@
 # Motion Studio for macOS
 
-A local browser dashboard for short video assets for DaVinci Resolve. **Abstract video** accepts a first frame for image-to-video generation via local ComfyUI, or provides a frame and motion prompt to use in LTX Desktop. **Data graphics** retains the Ollama and Manim pipeline for precise charts and labeled diagrams. Model output is never executed as Python.
+A local browser dashboard for short video assets for DaVinci Resolve. **Abstract video** animates a first frame directly on Apple silicon with the open LTX-Video 2B model; a ComfyUI workflow remains optional. **Data graphics** retains the Ollama and Manim pipeline for precise charts and labeled diagrams. Model output is never executed as Python.
 
 ## Requirements
 
@@ -37,9 +37,28 @@ chmod +x setup_mac.command start.command
 ./start.command
 ```
 
+## Direct local video setup (Apple silicon)
+
+In Terminal, from the Motion Studio folder:
+
+```sh
+chmod +x setup_ltx_mac.command
+./setup_ltx_mac.command
+```
+
+This clones the official [LTX-Video repository](https://github.com/Lightricks/LTX-Video) into the ignored `vendor/LTX-Video` folder and installs a separate Python environment. Restart `start.command` and confirm the dashboard shows **Local LTX ready**. The first video downloads the open 2B checkpoint and PixArt text encoder from Hugging Face; allow several GB of free disk space. This is local inference and does not consume LTX Studio credits. Close Ollama's large models (`ollama stop MODEL_NAME`) to free unified memory. Our Mac config disables the extra prompt enhancement models, starts with 768×448 at 24 fps, and offers a 1024×576 detail pass. It does not produce native 4K; upscale a successful clip separately if needed.
+
+This backend is based on upstream's documented MPS support. It has not been run on your specific M1 Pro, so treat the first small preview as a compatibility check. The full output and Python errors appear in **Show latest render log**.
+
 ## Workflow
 
-### Abstract video: LTX Desktop handoff
+### Abstract video: direct local LTX 2B
+
+1. Open **Abstract video**, drop your PNG, JPEG, or WebP first frame, and write the motion prompt.
+2. Leave the optional ComfyUI workflow field empty. Choose **Preview** and click **Generate local video**.
+3. Review the video in the dashboard. Use **Detail** for a separate higher resolution render. Finished MP4s go to `~/Movies/Nisha Motion Graphics/`.
+
+### Optional LTX Desktop handoff
 
 1. Open **Abstract video** and drop a PNG, JPEG, or WebP first frame into the dashboard. Check its preview.
 2. Refine the motion prompt and click **Copy motion prompt**. Click **Download selected frame** if the original is not already saved on your Mac.
@@ -51,7 +70,7 @@ LTX Desktop is a separate app; Motion Studio does not silently submit to its pri
 
 1. Start [ComfyUI](https://github.com/Comfy-Org/ComfyUI) locally on its default `127.0.0.1:8188` address, install an image-to-video model, and verify a workflow generates a video in ComfyUI itself.
 2. Export that working workflow **in API format**. In the exported JSON file, replace the positive prompt string with `{{PROMPT}}` and the image filename in the `LoadImage` node with `{{IMAGE}}`. Leave the model, sampler, duration, resolution, and MP4 video save node as configured. The placeholders are literal JSON string contents.
-3. In Motion Studio, drop your first frame, select that API JSON file, and click **Generate with local ComfyUI**. The dashboard uploads the frame only to your local ComfyUI server, queues the workflow, polls for completion, and saves the MP4 under `~/Movies/Nisha Motion Graphics/`.
+3. In Motion Studio, drop your first frame, select that API JSON file, and click **Generate local video**. Selecting a workflow switches the backend to ComfyUI. The dashboard uploads the frame only to your local ComfyUI server, queues the workflow, polls for completion, and saves the MP4 under `~/Movies/Nisha Motion Graphics/`.
 
 The imported workflow must contain both placeholders and produce an MP4, WebM, or MOV output. The app converts WebM/MOV to MP4 using FFmpeg. This connector does not install ComfyUI or model weights; those depend on your chosen local workflow and available hardware.
 
@@ -77,6 +96,6 @@ The server binds to `127.0.0.1` only. Ollama and Manim communicate locally. The 
 - **Manim setup error:** rerun `setup_mac.command`; if Homebrew reports a missing dependency, install it and rerun the script.
 - **Render takes too long:** use Preview (720p/24 fps); 4K rendering time depends on the Mac and scene complexity.
 - **Render error:** use **Show latest render log** beneath the status. On failure, the details open automatically. **Copy full log** copies the complete log to your clipboard; **Download full log** saves it as a file. A copy also stays under Movies → Nisha Motion Graphics.
-- **Old UI/error persists:** stop the running dashboard with Control-C in its Terminal window, run `git pull origin main` from this project folder, relaunch `start.command`, then hard-refresh the browser with Command-Shift-R. Confirm the header says **BUILD 2026.09.25.8**. If the Terminal says port 8765 is already in use, an older dashboard is still running; close its Terminal window with Control-C first.
+- **Old UI/error persists:** stop the running dashboard with Control-C in its Terminal window, run `git pull origin main` from this project folder, relaunch `start.command`, then hard-refresh the browser with Command-Shift-R. Confirm the header says **BUILD 2026.09.25.9**. If the Terminal says port 8765 is already in use, an older dashboard is still running; close its Terminal window with Control-C first.
 - **A preview is only two seconds despite a longer scene plan:** update `app.py` to build 2026.09.25.2. Older builds could download one partial movie file instead of Manim's finished movie.
 - **Port already in use:** launch with `MOTION_STUDIO_PORT=8766 .venv/bin/python app.py` and visit port 8766.
