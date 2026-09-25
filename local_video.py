@@ -81,7 +81,7 @@ def run(prompt: str, image_path: Path, output_path: Path,
     return output_path
 
 
-def _check_visual_output(movie: Path, log: Callable[[str], None]) -> None:
+def _check_visual_output(movie: Path, log: Callable[[str], None], provider: str = "LTX") -> None:
     """Reject a uniformly colored render while retaining upstream MP4 for diagnosis."""
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -92,20 +92,18 @@ def _check_visual_output(movie: Path, log: Callable[[str], None]) -> None:
                "-f", "rawvideo", "-"]
     result = subprocess.run(command, capture_output=True, timeout=90)
     if result.returncode:
-        raise RuntimeError("LTX saved an MP4, but FFmpeg could not read its frames: "
+        raise RuntimeError(f"{provider} saved an MP4, but FFmpeg could not read its frames: "
                            + result.stderr.decode("utf-8", errors="replace")[-300:])
     frame_bytes = 64 * 36 * 3
     frames = [result.stdout[i:i + frame_bytes]
               for i in range(0, len(result.stdout), frame_bytes)
               if len(result.stdout[i:i + frame_bytes]) == frame_bytes]
     if not frames:
-        raise RuntimeError("LTX saved an MP4 with no readable frames.")
+        raise RuntimeError(f"{provider} saved an MP4 with no readable frames.")
     ranges = [max(frame) - min(frame) for frame in frames]
     log(f"Output check: {len(frames)} sampled frames, RGB ranges {ranges}.\n")
     if len(frames) >= 2 and all(span <= 10 for span in ranges):
         raise RuntimeError(
-            "LTX produced a nearly uniform video (gray/blank frames). "
-            "The MP4 was kept under ltx-output for diagnosis. "
-            "This can be a model or Apple MPS numerical failure; "
-            "a different video encoder will not restore missing image detail."
+            f"{provider} produced a nearly uniform video (gray/blank frames). "
+            f"The MP4 was kept at {movie} for diagnosis."
         )
