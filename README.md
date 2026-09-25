@@ -11,6 +11,10 @@ A local browser dashboard for generating short 2D motion graphics for DaVinci Re
 
 Manim rendering runs locally. An Apple silicon Mac is not required; slower Macs can use the 720p preview preset.
 
+## Visual style
+
+Every render uses a deep charcoal background, warm amber focal points, vivid aqua supporting lines, restrained coral/violet accents, and soft light around bright elements. This applies to graphs, storyboards, and fast mode alike. The glow is added by FFmpeg after Manim finishes, so final 4K renders take an extra encoding pass. Preview at 720p while adjusting timing and composition.
+
 ## Setup
 
 1. Install Ollama for macOS from [ollama.com/download](https://ollama.com/download) and open it.
@@ -56,6 +60,6 @@ The server binds to `127.0.0.1` only. Ollama and Manim communicate locally. The 
 - **Manim setup error:** rerun `setup_mac.command`; if Homebrew reports a missing dependency, install it and rerun the script.
 - **Render takes too long:** use Preview (720p/24 fps); 4K rendering time depends on the Mac and scene complexity.
 - **Render error:** use **Show latest render log** beneath the status. On failure, the details open automatically. **Copy full log** copies the complete log to your clipboard; **Download full log** saves it as a file. A copy also stays under Movies → Nisha Motion Graphics.
-- **Old UI/error persists:** stop the running dashboard with Control-C in its Terminal window, run `git pull origin main` from this project folder, relaunch `start.command`, then hard-refresh the browser with Command-Shift-R. Confirm the header says **BUILD 2026.09.25.6**. If the Terminal says port 8765 is already in use, an older dashboard is still running; close its Terminal window with Control-C first.
+- **Old UI/error persists:** stop the running dashboard with Control-C in its Terminal window, run `git pull origin main` from this project folder, relaunch `start.command`, then hard-refresh the browser with Command-Shift-R. Confirm the header says **BUILD 2026.09.25.7**. If the Terminal says port 8765 is already in use, an older dashboard is still running; close its Terminal window with Control-C first.
 - **A preview is only two seconds despite a longer scene plan:** update `app.py` to build 2026.09.25.2. Older builds could download one partial movie file instead of Manim's finished movie.
 - **Port already in use:** launch with `MOTION_STUDIO_PORT=8766 .venv/bin/python app.py` and visit port 8766.
