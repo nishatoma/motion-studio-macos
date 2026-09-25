@@ -1,12 +1,12 @@
-MOTION STUDIO MAC UPDATE — BUILD 2026.09.25.4
+MOTION STUDIO MAC UPDATE — BUILD 2026.09.25.5
 
-1. Stop the running Motion Studio server with Control-C in its Terminal window.
-2. Copy app.py and scene_renderer.py into your existing motion-studio-macos folder, replacing the old files.
-3. Copy web/index.html into that project's web folder, replacing the old file.
-4. Start your existing start.command and hard-refresh http://127.0.0.1:8765 with Command-Shift-R.
-5. Confirm the header says BUILD 2026.09.25.4. Leave Planning quality on Polished and select your preferred installed model.
-6. Generate a new 720p preview with an abstract prompt, for example: Show how a pay raise disappears into lifestyle inflation, then compare spending it with investing it.
-7. Once its composition looks right, select YouTube 4K and click Render same scene at selected quality.
+The timeout fix is committed to this repository.
 
-Your prior $500 graph still uses its directed layout. Other ideas get a storyboard with statements, comparisons, flows, timelines, cycles, layers, or networks. Polished compares three model drafts, so a 27B model may take longer.
-Keep your existing .venv folder and previous renders. No setup rerun is needed.
+1. Stop the running Motion Studio server with Control-C.
+2. In /Users/nisha/Downloads/motion-studio-macos, run: git pull origin main
+3. Start start.command again and hard-refresh http://127.0.0.1:8765 with Command-Shift-R.
+4. Confirm the header says BUILD 2026.09.25.5.
+5. Run ollama ps. If an unused large model is loaded, unload it with ollama stop MODEL_NAME.
+6. Choose qwen3.6:27b or qwen2.5-coder:14b, Polished, and Preview 720p.
+
+Polished now uses one compact storyboard request for 14B+ models, two for 7B, and three for smaller models. It asks Ollama to skip thinking output where supported, caps context and response length, and unloads large models after a successful response. The $500 investment graph retains its directed layout.
