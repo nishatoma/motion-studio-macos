@@ -24,7 +24,7 @@
       <label class="label" for="planningQuality">Planning quality</label><select id="planningQuality"><option value="polished">Polished · visual storyboard / adaptive model budget</option><option value="fast">Fast · one experimental model plan</option></select>
       <button id="render" class="button">Generate animation</button>
       <button id="rerender" class="button secondary" hidden>Render same scene at selected quality</button>
-      <p class="hint">Polished builds a directed graph for supported investment prompts. Other ideas become visual storyboards. It uses one concise draft on 14B+ models, two on 7B, and three on smaller models. Fast uses the older shape planner. Choose 4K and render the same scene after previewing.</p>
+      <p class="hint">All renders use the same dark cinematic look: vivid aqua and amber accents with a soft glow around bright elements. Polished builds a directed graph for supported investment prompts; other ideas become visual storyboards. Preview first, then render the same scene at 4K.</p>
       <div id="status" class="status">Checking Ollama and Manim…</div>
       <div class="log-tools"><button id="logToggle" class="linkbtn" type="button" aria-expanded="false">Show latest render log</button><button id="logCopy" class="linkbtn" type="button" hidden>Copy full log</button><a id="logDownload" class="linkbtn" hidden download="motion-studio.log">Download full log</a></div>
       <div id="logPanel" class="log-panel" hidden><pre id="logText">No render log yet. Run an animation; full Manim output and Python tracebacks will appear here if anything fails.</pre></div>
