@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parent
 LTX_DIR = Path(os.environ.get("MOTION_STUDIO_LTX_DIR", ROOT / "vendor" / "LTX-Video")).expanduser()
 PYTHON = LTX_DIR / ".venv" / "bin" / "python"
 CONFIG = ROOT / "configs" / "ltxv-2b-mac.yaml"
+COMPAT_CONFIG = ROOT / "configs" / "ltxv-2b-mac-fp32.yaml"
 
 
 def is_ready() -> bool:
@@ -27,20 +28,32 @@ def run(prompt: str, image_path: Path, output_path: Path,
         raise RuntimeError("Install the local LTX 2B backend with setup_ltx_mac.command, then restart Motion Studio.")
     # Keep frame counts at 8n+1 and dimensions divisible by 32. A short first
     # pass is intentional on 32 GB unified memory; 720p can still run out of RAM.
-    width, height, frames = (768, 448, 49) if preset == "preview" else (1024, 576, 73)
+    if preset == "compatibility":
+        width, height, frames = 512, 320, 49
+        config = COMPAT_CONFIG
+    elif preset == "preview":
+        width, height, frames = 768, 448, 49
+        config = CONFIG
+    elif preset == "detail":
+        width, height, frames = 1024, 576, 73
+        config = CONFIG
+    else:
+        raise ValueError("Unknown local video preset.")
+    if not config.is_file():
+        raise RuntimeError(f"Missing local video configuration: {config.name}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     render_dir = output_path.parent / "ltx-output"
     render_dir.mkdir(exist_ok=True)
     command = [str(PYTHON), "inference.py", "--prompt", prompt,
                "--conditioning_media_paths", str(image_path),
-               "--conditioning_start_frames", "0", "--pipeline_config", str(CONFIG),
+               "--conditioning_start_frames", "0", "--pipeline_config", str(config),
                "--width", str(width), "--height", str(height),
                "--num_frames", str(frames), "--frame_rate", "24",
                "--seed", str(seed), "--output_path", str(render_dir)]
     log("LTX-Video 2B distilled, Apple MPS\n"
-        f"Resolution: {width}x{height}, frames: {frames}, fps: 24, seed: {seed}\n"
+        f"Resolution: {width}x{height}, frames: {frames}, fps: 24, seed: {seed}, preset: {preset}\n"
         f"First run downloads open model weights and text encoder to Hugging Face cache.\n"
-        f"Command: {command[0]} inference.py [prompt omitted] --pipeline_config {CONFIG}\n")
+        f"Command: {command[0]} inference.py [prompt omitted] --pipeline_config {config}\n")
     progress("Loading local LTX model (first run downloads weights)…")
     process = subprocess.Popen(command, cwd=LTX_DIR, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True, bufsize=1)
