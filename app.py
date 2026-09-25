@@ -19,7 +19,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.25.5"
+BUILD_ID = "2026.09.25.6"
 JOBS_DIR = Path.home() / "Movies" / "Nisha Motion Graphics"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -98,15 +98,30 @@ def validate_storyboard(raw: Any) -> dict[str, Any]:
         labels = entry.get("labels", [])
         if not title or not isinstance(labels, list):
             raise ValueError("Storyboard titles and labels must be present.")
-        minimum = {"statement": 0, "comparison": 2, "flow": 2, "timeline": 2,
-                   "cycle": 3, "layers": 2, "network": 3}[layout]
-        maximum = {"statement": 0, "comparison": 2, "flow": 4, "timeline": 5,
-                   "cycle": 5, "layers": 5, "network": 5}[layout]
-        if not minimum <= len(labels) <= maximum:
-            raise ValueError(f"{layout} needs {minimum} to {maximum} labels.")
         safe_labels = [str(label).strip() for label in labels]
         if any(not label or len(label) > 32 or len(label.split()) > 5 for label in safe_labels):
             raise ValueError("Storyboard labels must be 1 to 5 short words (up to 32 characters).")
+        # Small and large models alike sometimes put labels on a statement or
+        # choose a layout whose label count does not match its vocabulary.
+        # Reinterpret that plan instead of throwing away an otherwise usable scene.
+        if layout == "statement" and len(safe_labels) == 1:
+            subtitle = subtitle or safe_labels[0]
+            safe_labels = []
+        elif layout == "statement" and len(safe_labels) >= 2:
+            layout = "layers"
+        elif layout != "statement" and len(safe_labels) < 2:
+            subtitle = subtitle or (safe_labels[0] if safe_labels else "")
+            layout, safe_labels = "statement", []
+        elif layout == "cycle" and len(safe_labels) == 2:
+            layout = "comparison"
+        elif layout == "network" and len(safe_labels) == 2:
+            layout = "comparison"
+        elif layout == "comparison" and len(safe_labels) > 2:
+            layout = "flow" if len(safe_labels) <= 4 else "timeline"
+        elif layout == "flow" and len(safe_labels) > 4:
+            layout = "timeline"
+        if layout != "statement":
+            safe_labels = safe_labels[:5]
         accent = str(entry.get("accent", "aqua"))
         if accent not in {"aqua", "gold", "coral", "violet"}:
             accent = "aqua"
@@ -545,15 +560,15 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
                         quality=PRESETS[preset]["label"],
                         plan_source=plan.get("_source", "Ollama"))
     except Exception as exc:
-        diagnostics = process_output or traceback.format_exc()
+        diagnostics = (process_output + "\n\n" if process_output else "") + traceback.format_exc()
         try:
             with log_path.open("a", encoding="utf-8") as log:
-                log.write("\nERROR\n" + diagnostics + "\nPython traceback:\n" + traceback.format_exc())
+                log.write("\nERROR\n" + diagnostics)
         except OSError:
             pass
         with LOCK:
             job.update(status="error", message=str(exc),
-                       details=diagnostics + "\n\nPython traceback:\n" + traceback.format_exc(),
+                       details=diagnostics,
                        log_url=f"/logs/{job_id}")
 
 
