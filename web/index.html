@@ -26,7 +26,7 @@
       <button id="rerender" class="button secondary" hidden>Render same scene at selected quality</button>
       <p class="hint">Polished builds a directed graph for supported investment prompts. Other ideas become visual storyboards. It uses one concise draft on 14B+ models, two on 7B, and three on smaller models. Fast uses the older shape planner. Choose 4K and render the same scene after previewing.</p>
       <div id="status" class="status">Checking Ollama and Manim…</div>
-      <div class="log-tools"><button id="logToggle" class="linkbtn" type="button" aria-expanded="false">Show latest render log</button><a id="logDownload" class="linkbtn" hidden download="motion-studio.log">Download full log</a></div>
+      <div class="log-tools"><button id="logToggle" class="linkbtn" type="button" aria-expanded="false">Show latest render log</button><button id="logCopy" class="linkbtn" type="button" hidden>Copy full log</button><a id="logDownload" class="linkbtn" hidden download="motion-studio.log">Download full log</a></div>
       <div id="logPanel" class="log-panel" hidden><pre id="logText">No render log yet. Run an animation; full Manim output and Python tracebacks will appear here if anything fails.</pre></div>
       <p class="hint">Try: “Show how a pay raise disappears into lifestyle inflation, then compare spending it with investing it.” The model chooses visual relationships and text; the renderer controls spacing. Model output is never executed as Python code.</p>
     </section>
@@ -34,10 +34,11 @@
   </div>
 </main>
 <script>
-const $=id=>document.getElementById(id);let busy=false,latestCompletedJobId=null;
+const $=id=>document.getElementById(id);let busy=false,latestCompletedJobId=null,latestLogUrl=null;
 function showStatus(text,kind=""){const el=$("status");el.textContent=text;el.className="status "+kind}
 async function refreshHealth(){try{const r=await fetch("/api/health"),h=await r.json();const pill=$("health");pill.innerHTML=`<b>${h.manim?"Manim ready":"Manim setup needed"}</b> · ${h.models.length?"Ollama connected":"Ollama offline"}`;pill.title=`Build ${h.build} · ${h.app_file}`;$("buildBadge").textContent=`LOCAL MAC APP · BUILD ${h.build}`;$("buildBadge").title=`Serving from ${h.project_root}`;const select=$("model");select.innerHTML="";for(const m of h.models){const op=document.createElement("option");op.value=m;op.textContent=m;select.append(op)}if(!h.models.length){const o=document.createElement("option");o.textContent="Install/open Ollama first";select.append(o)}let notes=[];if(!h.models.length)notes.push("Install and open Ollama, then download a small model (for example, qwen2.5-coder:3b). Refresh this page after it finishes.");if(!h.manim)notes.push("Manim is not installed. Run setup_mac.command from the project folder.");showStatus(notes.join(" ")||"Ready. Your prompt and renders stay on this Mac.",notes.length?"":"ok")}catch(e){showStatus("Could not contact the local app server.","err")}}
-function showDetails(job){const button=$("logToggle"),pre=$("logText"),download=$("logDownload");pre.textContent=job.details||"No process output captured.";button.textContent=job.status==="error"?"Show full error details / stack trace":"Show render log";button.classList.toggle("err-link",job.status==="error");if(job.log_url){download.href=job.log_url;download.hidden=false}}
+function showDetails(job){const button=$("logToggle"),pre=$("logText"),download=$("logDownload");pre.textContent=job.details||"No process output captured.";button.textContent=job.status==="error"?"Show full error details / stack trace":"Show render log";button.classList.toggle("err-link",job.status==="error");latestLogUrl=job.log_url||null;$("logCopy").hidden=false;if(job.log_url){download.href=job.log_url;download.hidden=false}}
+$("logCopy").addEventListener("click",async()=>{const button=$("logCopy");try{let value=$("logText").textContent;if(latestLogUrl){const response=await fetch(latestLogUrl);if(!response.ok)throw new Error("Log unavailable");value=await response.text()}if(navigator.clipboard&&navigator.clipboard.writeText){await navigator.clipboard.writeText(value)}else{const field=document.createElement("textarea");field.value=value;field.style.position="fixed";field.style.opacity="0";document.body.append(field);field.select();const copied=document.execCommand("copy");field.remove();if(!copied)throw new Error("Clipboard unavailable")}button.textContent="Copied!"}catch(e){button.textContent="Copy failed"}setTimeout(()=>button.textContent="Copy full log",2200)});
 $("logToggle").addEventListener("click",()=>{const button=$("logToggle"),panel=$("logPanel"),open=button.getAttribute("aria-expanded")==="true",error=button.classList.contains("err-link");button.setAttribute("aria-expanded",String(!open));panel.hidden=open;button.textContent=error?(open?"Show full error details / stack trace":"Hide full error details / stack trace"):(open?"Show latest render log":"Hide latest render log")});
 function setBusy(value){busy=value;$("render").disabled=value;$("rerender").disabled=value;$("render").textContent=value?"Working…":"Generate animation"}
 async function poll(id){
@@ -61,12 +62,12 @@ async function runRender(url,body){
   if(busy)return;
   setBusy(true);$("logPanel").hidden=true;$("logToggle").setAttribute("aria-expanded","false");
   $("logToggle").textContent="Show latest render log";$("logToggle").classList.remove("err-link");
-  $("logText").textContent="Render is running. The full output will be captured here when it finishes.";$("logDownload").hidden=true;showStatus("Starting…");
+  $("logText").textContent="Render is running. The full output will be captured here when it finishes.";latestLogUrl=null;$("logCopy").hidden=true;$("logDownload").hidden=true;showStatus("Starting…");
   try{
     const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
     const data=await r.json();if(!r.ok)throw new Error(data.error||"Could not start render");await poll(data.id);
   }catch(e){
-    showStatus(e.message,"err");$("logText").textContent=e.stack||e.message;$("logToggle").textContent="Show error details";$("logToggle").classList.add("err-link");setBusy(false);
+    showStatus(e.message,"err");$("logText").textContent=e.stack||e.message;$("logToggle").textContent="Show error details";$("logToggle").classList.add("err-link");$("logCopy").hidden=false;setBusy(false);
   }
 }
 $("render").addEventListener("click",()=>{
