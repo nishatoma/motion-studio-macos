@@ -21,10 +21,11 @@ from typing import Any
 
 import abstract_video
 import local_video
+import wan_video
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.25.11"
+BUILD_ID = "2026.09.25.12"
 JOBS_DIR = Path.home() / "Movies" / "Nisha Motion Graphics"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -614,11 +615,12 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
 
 
 def render_abstract_job(job_id: str, prompt: str, image_data: bytes,
-                        workflow: dict[str, Any] | None, preset: str = "preview") -> None:
+                        workflow: dict[str, Any] | None, preset: str = "preview", backend: str = "ltx") -> None:
     job_dir = JOBS_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
     log_path = job_dir / "motion-studio.log"
-    provider = "local ComfyUI" if workflow is not None else "local LTX-Video 2B"
+    provider = ("local ComfyUI" if workflow is not None else
+                "Wan 2.2 TI2V 5B · MLX-Video" if backend == "wan" else "local LTX-Video 2B")
     log_path.write_text(f"Abstract video job started.\nProvider: {provider}\n", encoding="utf-8")
     try:
         suffix = abstract_video.image_extension(image_data)
@@ -633,7 +635,9 @@ def render_abstract_job(job_id: str, prompt: str, image_data: bytes,
         def log(message: str) -> None:
             with log_path.open("a", encoding="utf-8") as file:
                 file.write(message)
-        if workflow is None:
+        if workflow is None and backend == "wan":
+            output = wan_video.run(prompt, image_path, job_dir / "animation.mp4", progress, log, preset)
+        elif workflow is None:
             output = local_video.run(prompt, image_path, job_dir / "animation.mp4", progress, log, preset)
         else:
             output = abstract_video.run(prompt, image_data, workflow, job_dir / "animation.mp4", progress, log)
@@ -641,7 +645,8 @@ def render_abstract_job(job_id: str, prompt: str, image_data: bytes,
             JOBS[job_id].update(status="complete", message="Abstract video ready.",
                                 kind="abstract", video=f"/files/{job_id}/animation.mp4",
                                 filename=str(output), duration=None,
-                                quality=("ComfyUI workflow output" if workflow is not None else "LTX 2B local · " + preset),
+                                quality=("ComfyUI workflow output" if workflow is not None else
+                                          "Wan 2.2 MLX · " + preset if backend == "wan" else "LTX 2B local · " + preset),
                                 details=log_path.read_text(encoding="utf-8"),
                                 log_url=f"/logs/{job_id}", plan_source=provider)
     except Exception as exc:
@@ -653,7 +658,7 @@ def render_abstract_job(job_id: str, prompt: str, image_data: bytes,
                                 kind="abstract", log_url=f"/logs/{job_id}")
 
 
-def parse_abstract_request(content_type: str, body: bytes) -> tuple[str, bytes, dict[str, Any] | None, str]:
+def parse_abstract_request(content_type: str, body: bytes) -> tuple[str, bytes, dict[str, Any] | None, str, str]:
     if not content_type.lower().startswith("multipart/form-data;"):
         raise ValueError("Upload a reference image and motion prompt.")
     header = f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode()
@@ -663,7 +668,7 @@ def parse_abstract_request(content_type: str, body: bytes) -> tuple[str, bytes, 
     fields: dict[str, bytes] = {}
     for part in message.iter_parts():
         name = part.get_param("name", header="content-disposition")
-        if name in {"prompt", "image", "workflow", "preset"} and name not in fields:
+        if name in {"prompt", "image", "workflow", "preset", "backend"} and name not in fields:
             fields[name] = part.get_payload(decode=True) or b""
     prompt = fields.get("prompt", b"").decode("utf-8").strip()
     image = fields.get("image", b"")
@@ -674,7 +679,10 @@ def parse_abstract_request(content_type: str, body: bytes) -> tuple[str, bytes, 
         raise ValueError("Choose a reference image under 12 MB.")
     abstract_video.image_extension(image)
     preset = fields.get("preset", b"preview").decode("utf-8").strip()
-    if preset not in {"preview", "detail", "compatibility"}:
+    backend = fields.get("backend", b"ltx").decode("utf-8").strip()
+    if backend not in {"ltx", "wan"}:
+        raise ValueError("Choose a valid local video backend.")
+    if preset not in ({"preview", "detail"} if backend == "wan" else {"preview", "detail", "compatibility"}):
         raise ValueError("Choose a valid local video preset.")
     workflow = None
     if raw_workflow:
@@ -685,7 +693,7 @@ def parse_abstract_request(content_type: str, body: bytes) -> tuple[str, bytes, 
         except (ValueError, UnicodeDecodeError) as exc:
             raise ValueError("The workflow file is not valid JSON.") from exc
         abstract_video.fill_workflow(workflow, prompt, "reference.png")
-    return prompt, image, workflow, preset
+    return prompt, image, workflow, preset, backend
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -711,7 +719,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, (WEB / "index.html").read_bytes(), "text/html; charset=utf-8")
         elif path == "/api/health":
             self._json(200, {"models": ollama_models(), "manim": (ROOT / ".venv" / "bin" / "manim").exists(),
-                             "comfyui": abstract_video.is_ready(), "ltx": local_video.is_ready(),
+                             "comfyui": abstract_video.is_ready(), "ltx": local_video.is_ready(), "wan": wan_video.is_ready(),
                              "output": str(JOBS_DIR), "ollama_url": OLLAMA_URL,
                              "build": BUILD_ID, "project_root": str(ROOT), "app_file": str(Path(__file__).resolve())})
         elif path.startswith("/api/jobs/"):
@@ -744,18 +752,20 @@ class Handler(BaseHTTPRequestHandler):
                 length = int(self.headers.get("Content-Length", "0"))
                 if length <= 0 or length > 15 * 1024 * 1024:
                     return self._json(413, {"error": "Upload must be under 15 MB."})
-                prompt, image, workflow, preset = parse_abstract_request(
+                prompt, image, workflow, preset, backend = parse_abstract_request(
                     self.headers.get("Content-Type", ""), self.rfile.read(length))
                 if workflow is not None and not abstract_video.is_ready():
                     return self._json(503, {"error": "Start local ComfyUI on 127.0.0.1:8188 for the selected workflow."})
-                if workflow is None and not local_video.is_ready():
+                if workflow is None and backend == "wan" and not wan_video.is_ready():
+                    return self._json(503, {"error": "Install Wan MLX using setup_wan_mlx_mac.command, then restart Motion Studio."})
+                if workflow is None and backend == "ltx" and not local_video.is_ready():
                     return self._json(503, {"error": "Install the local LTX 2B backend using setup_ltx_mac.command, then restart Motion Studio."})
                 job_id = uuid.uuid4().hex[:12]
                 with LOCK:
                     JOBS[job_id] = {"id": job_id, "kind": "abstract", "status": "queued",
                                     "message": "Queued for local video generation…", "created": time.time()}
                 threading.Thread(target=render_abstract_job,
-                                 args=(job_id, prompt, image, workflow, preset), daemon=True).start()
+                                 args=(job_id, prompt, image, workflow, preset, backend), daemon=True).start()
                 return self._json(202, {"id": job_id})
             except ValueError as exc:
                 return self._json(400, {"error": str(exc)})
