@@ -52,7 +52,7 @@
   </div>
 </main>
 <script>
-const $=id=>document.getElementById(id);let busy=false,latestCompletedJobId=null,latestLogUrl=null,referenceFile=null,referenceUrl=null,mode="abstract",health=null;
+const $=id=>document.getElementById(id);let busy=false,latestCompletedJobId=null,latestLogUrl=null,latestLogText="",referenceFile=null,referenceUrl=null,mode="abstract",health=null;
 function showStatus(text,kind=""){const el=$("status");el.textContent=text;el.className="status "+kind}
 function showMode(value){mode=value;$("abstractFields").hidden=value!=="abstract";$("graphicsFields").hidden=value!=="graphics";$("abstractTab").setAttribute("aria-pressed",String(value==="abstract"));$("graphicsTab").setAttribute("aria-pressed",String(value==="graphics"));if(health&&!busy){showStatus(value==="abstract"?(health.ltx?"Local LTX 2B ready. Drop a first frame to generate video.":"Run setup_ltx_mac.command for direct local video."):(health.manim&&health.models.length?"Ollama and Manim ready.":"Open Ollama and install Manim for data graphics."),value==="abstract"&&health.ltx||value==="graphics"&&health.manim&&health.models.length?"ok":"")}}
 $("abstractTab").addEventListener("click",()=>showMode("abstract"));$("graphicsTab").addEventListener("click",()=>showMode("graphics"));
@@ -64,8 +64,8 @@ for(const event of ["dragenter","dragover"]){$("dropZone").addEventListener(even
 for(const event of ["dragleave","drop"]){$("dropZone").addEventListener(event,e=>{e.preventDefault();$("dropZone").classList.remove("dragging")})}
 $("dropZone").addEventListener("drop",e=>selectReference(e.dataTransfer.files[0]));
 $("copyMotionPrompt").addEventListener("click",async()=>{try{await navigator.clipboard.writeText($("abstractPrompt").value.trim());showStatus("Motion prompt copied.","ok")}catch(e){showStatus("Could not copy automatically. Select and copy the prompt above.","err")}});
-function showDetails(job){const button=$("logToggle"),pre=$("logText"),download=$("logDownload");pre.textContent=job.details||"No process output captured.";button.textContent=job.status==="error"?"Show full error details / stack trace":"Show render log";button.classList.toggle("err-link",job.status==="error");latestLogUrl=job.log_url||null;$("logCopy").hidden=false;if(job.log_url){download.href=job.log_url;download.hidden=false}}
-$("logCopy").addEventListener("click",async()=>{const button=$("logCopy");try{let value=$("logText").textContent;if(latestLogUrl){const response=await fetch(latestLogUrl);if(!response.ok)throw new Error("Log unavailable");value=await response.text()}if(navigator.clipboard&&navigator.clipboard.writeText){await navigator.clipboard.writeText(value)}else{const field=document.createElement("textarea");field.value=value;field.style.position="fixed";field.style.opacity="0";document.body.append(field);field.select();const copied=document.execCommand("copy");field.remove();if(!copied)throw new Error("Clipboard unavailable")}button.textContent="Copied!"}catch(e){button.textContent="Copy failed"}setTimeout(()=>button.textContent="Copy full log",2200)});
+async function showDetails(job){const button=$("logToggle"),pre=$("logText"),download=$("logDownload");latestLogUrl=job.log_url||null;latestLogText=job.details||"No process output captured.";if(job.status==="error"&&latestLogUrl){try{const response=await fetch(latestLogUrl);if(response.ok)latestLogText=await response.text()}catch(e){/* Keep the error details already provided by the job. */}}pre.textContent=latestLogText;button.textContent=job.status==="error"?"Show full error details / stack trace":"Show render log";button.classList.toggle("err-link",job.status==="error");$("logCopy").hidden=false;download.hidden=!latestLogUrl;if(latestLogUrl)download.href=latestLogUrl}
+$("logCopy").addEventListener("click",async()=>{const button=$("logCopy"),value=latestLogText||$("logText").textContent;try{const field=document.createElement("textarea");field.value=value;field.style.position="fixed";field.style.left="0";field.style.top="0";field.style.opacity="0";document.body.append(field);field.focus();field.select();let copied=false;try{copied=document.execCommand("copy")}catch(e){}field.remove();if(!copied){if(!navigator.clipboard?.writeText)throw new Error("Clipboard unavailable");await navigator.clipboard.writeText(value)}button.textContent="Copied!"}catch(e){$("logPanel").hidden=false;$("logText").textContent=value;button.textContent="Select log and press ⌘C"}setTimeout(()=>button.textContent="Copy full log",3500)});
 $("logToggle").addEventListener("click",()=>{const button=$("logToggle"),panel=$("logPanel"),open=button.getAttribute("aria-expanded")==="true",error=button.classList.contains("err-link");button.setAttribute("aria-expanded",String(!open));panel.hidden=open;button.textContent=error?(open?"Show full error details / stack trace":"Hide full error details / stack trace"):(open?"Show latest render log":"Hide latest render log")});
 function setBusy(value){busy=value;$("render").disabled=value;$("rerender").disabled=value;$("abstractRender").disabled=value;$("render").textContent=value?"Working…":"Generate animation";$("abstractRender").textContent=value?"Generating…":"Generate local video"}
 async function poll(id){
@@ -76,10 +76,10 @@ async function poll(id){
       const preview=$("preview");preview.innerHTML="";
       const video=document.createElement("video");video.controls=true;video.src=j.video;video.autoplay=true;video.playsInline=true;preview.append(video);
       $("resultActions").innerHTML=`<a class="linkbtn" href="${j.video}" download="motion-studio-animation.mp4">Download MP4</a><span class="hint">${j.quality}${typeof j.duration==="number"?" · "+j.duration.toFixed(1)+" sec":""}</span>`;
-      latestCompletedJobId=j.kind==="abstract"?null:id;$("rerender").hidden=j.kind==="abstract";showDetails(j);break;
+      latestCompletedJobId=j.kind==="abstract"?null:id;$("rerender").hidden=j.kind==="abstract";await showDetails(j);break;
     }
     if(j.status==="error"){
-      showDetails(j);$("logPanel").hidden=false;$("logToggle").setAttribute("aria-expanded","true");$("logToggle").textContent="Hide full error details / stack trace";break;
+      await showDetails(j);$("logPanel").hidden=false;$("logToggle").setAttribute("aria-expanded","true");$("logToggle").textContent="Hide full error details / stack trace";break;
     }
     await new Promise(resolve=>setTimeout(resolve,1600));
   }
@@ -89,7 +89,7 @@ async function runRender(url,body){
   if(busy)return;
   setBusy(true);$("logPanel").hidden=true;$("logToggle").setAttribute("aria-expanded","false");
   $("logToggle").textContent="Show latest render log";$("logToggle").classList.remove("err-link");
-  $("logText").textContent="Render is running. The full output will be captured here when it finishes.";latestLogUrl=null;$("logCopy").hidden=true;$("logDownload").hidden=true;showStatus("Starting…");
+  $("logText").textContent="Render is running. The full output will be captured here when it finishes.";latestLogUrl=null;latestLogText="";$("logCopy").hidden=true;$("logDownload").hidden=true;showStatus("Starting…");
   try{
     const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
     const data=await r.json();if(!r.ok)throw new Error(data.error||"Could not start render");await poll(data.id);
@@ -102,7 +102,7 @@ $("abstractRender").addEventListener("click",async()=>{
   const prompt=$("abstractPrompt").value.trim(),workflow=$("workflowFile").files[0];
   if(!prompt||!referenceFile){showStatus("Enter a motion prompt and drop a first frame.","err");return}
   const data=new FormData();data.append("prompt",prompt);data.append("image",referenceFile);data.append("preset",$("videoPreset").value);if(workflow)data.append("workflow",workflow);
-  setBusy(true);$("logPanel").hidden=true;$("logCopy").hidden=true;$("logDownload").hidden=true;latestLogUrl=null;showStatus(workflow?"Sending to local ComfyUI…":"Starting local LTX 2B…");
+  setBusy(true);$("logPanel").hidden=true;$("logCopy").hidden=true;$("logDownload").hidden=true;latestLogUrl=null;latestLogText="";showStatus(workflow?"Sending to local ComfyUI…":"Starting local LTX 2B…");
   try{const r=await fetch("/api/abstract/jobs",{method:"POST",body:data});const reply=await r.json();if(!r.ok)throw new Error(reply.error||"Could not start video generation");await poll(reply.id)}
   catch(e){showStatus(e.message,"err");$("logText").textContent=e.stack||e.message;$("logCopy").hidden=false;setBusy(false)}
 });
