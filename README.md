@@ -39,11 +39,10 @@ chmod +x setup_mac.command start.command
 
 ## Wan 2.2 MLX setup (Apple silicon)
 
-From the Motion Studio folder, run:
+From the Motion Studio folder, run with `bash` so Git does not record an executable-bit change to the tracked script:
 
 ```sh
-chmod +x setup_wan_mlx_mac.command
-./setup_wan_mlx_mac.command
+bash setup_wan_mlx_mac.command
 ```
 
 This installs [MLX-Video](https://github.com/Blaizzy/mlx-video) in a separate Python environment and downloads a [preconverted Wan 2.2 TI2V 5B Q8 model](https://huggingface.co/Anes1032/Wan2.2-TI2V-5B-mlx-q8) (~19.6 GB) into the ignored `vendor` folder. Keep at least 25 GB of free disk space. It does not reuse LTX weights or credits. Restart the dashboard, select **Wan 2.2 TI2V 5B · MLX-Video**, and confirm **Wan MLX ready**. The small Preview generates 512×288, 41 frames at 24 fps with 20 diffusion steps; Detail generates 768×448, 49 frames with 40 steps. Both use upstream's MLX VAE decoding and MP4 export. Frames must be 4n+1 and dimensions multiples of 32.
