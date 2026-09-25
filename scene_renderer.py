@@ -121,7 +121,7 @@ class GeneratedScene(Scene):
     def construct(self):
         spec_file = Path(os.environ["MOTION_STUDIO_SPEC"])
         spec = json.loads(spec_file.read_text(encoding="utf-8"))
-        self.camera.background_color = color(spec.get("background", "#07131F"))
+        self.camera.background_color = color("#0C1019")
         if spec.get("template") == "portfolio_growth":
             self.portfolio_growth(spec)
             return
@@ -160,8 +160,8 @@ class GeneratedScene(Scene):
         self.wait(0.4)
 
     def storyboard(self, spec):
-        palette = {"aqua": "#62E6D5", "gold": "#F6C76B",
-                   "coral": "#FF8A80", "violet": "#AF9DFA"}
+        palette = {"aqua": "#55EDE3", "gold": "#FFB56B",
+                   "coral": "#FF7972", "violet": "#B9A0FF"}
         previous = VGroup()
         for index, scene in enumerate(spec["scenes"]):
             if index:
@@ -169,7 +169,7 @@ class GeneratedScene(Scene):
             tint = palette[scene["accent"]]
             body = self.storyboard_body(scene, tint)
             if scene["layout"] == "statement":
-                title = fitted_text(scene["title"], 60, "#F4F9FB", 11.5, True).move_to([0, 0.35, 0])
+                title = fitted_text(scene["title"], 60, tint, 11.5, True).move_to([0, 0.35, 0])
                 subtitle = fitted_text(scene["subtitle"], 28, "#9CB6C3", 10.5).move_to([0, -1.15, 0])
             else:
                 title = fitted_text(scene["title"], 42, "#F4F9FB", 11.9, True).move_to([0, 3.12, 0])
@@ -255,10 +255,10 @@ class GeneratedScene(Scene):
         rate = monthly_rate_for_target(monthly, end - start, target)
         annual = 100 * ((1 + rate) ** 12 - 1)
         balance = lambda age: growth_balance(monthly, start, age, rate)
-        aqua, gold, white, muted = "#62E6D5", "#F6C76B", "#F4F9FB", "#92AFBD"
+        aqua, gold, white, muted = "#55EDE3", "#FFB56B", "#F4F9FB", "#92AFBD"
 
         title = Text(f"${monthly:,.0f} / MONTH", font="Arial", font_size=42,
-                     weight="BOLD", color=white).move_to([-5.95, 3.1, 0], aligned_edge=LEFT)
+                     weight="BOLD", color=gold).move_to([-5.95, 3.1, 0], aligned_edge=LEFT)
         title.scale_to_fit_width(min(title.width, 6.6))
         subtitle = Text(f"AGE {start} TO {end}", font="Arial", font_size=23,
                         color=muted).move_to([1.35, 3.1, 0])
