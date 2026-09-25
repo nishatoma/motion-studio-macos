@@ -19,16 +19,21 @@ MODEL_DIR = Path(os.environ.get("MOTION_STUDIO_WAN_MODEL_DIR", ROOT / "vendor" /
 # Width/height are native generation dimensions. Export dimensions do not
 # change the model's detail; they only make a Resolve-ready delivery file.
 PRESETS = {
-    "preview": (512, 288, 41, 20, None),
-    "detail": (768, 448, 49, 40, None),
-    "hd": (1280, 704, 49, 40, None),
-    "hd_3s": (1280, 704, 73, 40, None),
-    "1080p": (1280, 704, 49, 40, (1920, 1080)),
-    "1080p_3s": (1280, 704, 73, 40, (1920, 1080)),
-    "4k": (1280, 704, 49, 40, (3840, 2160)),
-    "4k_3s": (1280, 704, 73, 40, (3840, 2160)),
+    # Last value is guidance. 1.0 skips the unconditional forward pass.
+    "quick": (512, 288, 41, 12, None, 1.0),
+    "fast": (768, 448, 49, 16, None, 5.0),
+    "preview": (512, 288, 41, 20, None, 5.0),
+    "detail": (768, 448, 49, 40, None, 5.0),
+    "hd": (1280, 704, 49, 40, None, 5.0),
+    "hd_3s": (1280, 704, 73, 40, None, 5.0),
+    "1080p": (1280, 704, 49, 40, (1920, 1080), 5.0),
+    "1080p_3s": (1280, 704, 73, 40, (1920, 1080), 5.0),
+    "4k": (1280, 704, 49, 40, (3840, 2160), 5.0),
+    "4k_3s": (1280, 704, 73, 40, (3840, 2160), 5.0),
 }
 LABELS = {
+    "quick": "Quick test · 512×288 native · 1.7 s · 12 steps / no CFG",
+    "fast": "Fast detail · 768×448 native · 2 s · 16 steps",
     "preview": "512×288 native · 1.7 s",
     "detail": "768×448 native · 2 s",
     "hd": "1280×704 native · 2 s",
@@ -62,17 +67,18 @@ def run(prompt: str, image_path: Path, output_path: Path,
         raise RuntimeError("Install Wan MLX with setup_wan_mlx_mac.command, then restart Motion Studio.")
     if preset not in PRESETS:
         raise ValueError("Choose a valid Wan MLX preset.")
-    width, height, frames, steps, export_size = PRESETS[preset]
+    width, height, frames, steps, export_size, guidance = PRESETS[preset]
     output_path.parent.mkdir(parents=True, exist_ok=True)
     native_path = output_path.with_name("wan-native.mp4") if export_size else output_path
     command = [str(PYTHON), "-u", "-m", "mlx_video.models.wan_2.generate",
                "--model-dir", str(MODEL_DIR), "--image", str(image_path),
                "--prompt", prompt, "--width", str(width), "--height", str(height),
                "--num-frames", str(frames), "--steps", str(steps),
+               "--guide-scale", str(guidance),
                "--seed", str(seed), "--tiling", "aggressive",
                "--output-path", str(native_path)]
     log(f"Wan 2.2 TI2V 5B · MLX-Video · {preset}\n"
-        f"Model: {MODEL_DIR}\nNative: {width}x{height}, {frames} frames, {steps} steps, 24 fps, seed {seed}\n"
+        f"Model: {MODEL_DIR}\nNative: {width}x{height}, {frames} frames, {steps} steps, guidance {guidance}, 24 fps, seed {seed}\n"
         f"Export: {export_size or (width, height)}; upscale does not add model detail.\n"
         f"Command: {PYTHON} -m mlx_video.models.wan_2.generate [prompt omitted] --model-dir {MODEL_DIR}\n")
     progress("Loading Wan MLX model and encoding the first frame…")
