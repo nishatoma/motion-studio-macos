@@ -19,7 +19,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.25.4"
+BUILD_ID = "2026.09.25.5"
 JOBS_DIR = Path.home() / "Movies" / "Nisha Motion Graphics"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -117,7 +117,7 @@ def validate_storyboard(raw: Any) -> dict[str, Any]:
             "_source": "Ollama storyboard + fixed visual layouts"}
 
 
-def storyboard_prompt(prompt: str, critique: str = "") -> str:
+def storyboard_prompt(prompt: str, critique: str = "", large_model: bool = False) -> str:
     return f"""Plan a polished, short 2D motion-graphics storyboard for a YouTube video about any abstract idea.
 Return ONLY JSON matching the schema. Choose one of these visual layouts for each scene:
 - statement: one bold idea or surprising question; labels MUST be [].
@@ -127,7 +127,7 @@ Return ONLY JSON matching the schema. Choose one of these visual layouts for eac
 - cycle: 3-5 elements of a repeating loop.
 - layers: 2-5 stacked costs, pressures, or components.
 - network: 3-5 ideas connected to a central theme.
-Use 2-4 scenes with varied layouts, 2.5-4 seconds each. A title is a short on-screen claim (max 7 words), subtitle is one helpful phrase, and each label is at most 4 words. Make the visual relationships specific to the user's idea. Preserve requested names, numbers, and causal order. Do not invent facts or add investment returns. Avoid repeating the same labels across scenes. Choose aqua, gold, coral, or violet for emphasis. The renderer handles positions and animation. Do not include coordinates, Python, markdown, or code fences.
+Use {"1-2" if large_model else "2-4"} scenes with varied layouts, 2.5-4 seconds each. A title is a short on-screen claim (max 7 words), subtitle is one helpful phrase, and each label is at most 4 words. Make the visual relationships specific to the user's idea. Preserve requested names, numbers, and causal order. Do not invent facts or add investment returns. Avoid repeating the same labels across scenes. Choose aqua, gold, coral, or violet for emphasis. The renderer handles positions and animation. Do not include coordinates, Python, markdown, or code fences.
 User request: {prompt}{critique}"""
 
 
@@ -398,12 +398,18 @@ def generate_storyboard(prompt: str, model: str) -> dict[str, Any]:
     best, best_score = None, float("inf")
     critique = ""
     last_error = None
-    for attempt in range(3):
+    size_match = re.search(r":(\d+)b(?:$|[-_])", model, re.I)
+    billions = int(size_match.group(1)) if size_match else 7
+    attempts = 1 if billions >= 14 else 2 if billions >= 7 else 3
+    large_model = billions >= 14
+    for attempt in range(attempts):
         try:
             response = local_json(f"{OLLAMA_URL}/api/generate", {
-                "model": model, "prompt": storyboard_prompt(prompt, critique),
-                "stream": False, "format": STORYBOARD_SCHEMA,
-                "options": {"temperature": 0.25},
+                "model": model, "prompt": storyboard_prompt(prompt, critique, large_model),
+                "stream": False, "think": False, "format": STORYBOARD_SCHEMA,
+                "keep_alive": 0 if large_model else "5m",
+                "options": {"temperature": 0.2, "num_ctx": 4096,
+                            "num_predict": 850 if large_model else 1200},
             }, timeout=300)
             candidate = validate_storyboard(json.loads(response.get("response", "")))
             score = storyboard_score(candidate)
@@ -413,13 +419,15 @@ def generate_storyboard(prompt: str, model: str) -> dict[str, Any]:
         except urllib.error.URLError as exc:
             raise RuntimeError("Ollama is not responding. Open Ollama and try again.") from exc
         except TimeoutError as exc:
-            raise RuntimeError("The model took too long. Try a smaller model or shorter prompt.") from exc
+            if best is not None:
+                break
+            raise RuntimeError(f"{model} did not finish a storyboard within 5 minutes. Run 'ollama ps' to check for other loaded models, stop those you are not using, or select a smaller model such as qwen2.5-coder:14b.") from exc
         except (ValueError, TypeError, KeyError) as exc:
             last_error = exc
             critique = f"\nThe previous response was invalid: {exc}. Follow the exact layout label counts."
     if best is None:
         raise RuntimeError(f"The model returned no usable storyboard: {last_error}") from last_error
-    best["_source"] = f"Ollama storyboard · best of 3 ({model})"
+    best["_source"] = f"Ollama storyboard · best of {attempts} ({model})"
     return best
 
 
@@ -478,7 +486,7 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
         job["status"] = "planning"
         job["message"] = ("Reusing the scene plan…" if existing_plan is not None
                           else "Designing a clean graph layout…" if planning_quality == "polished" and directed_growth_plan(prompt)
-                          else "Planning several visual storyboards…" if planning_quality == "polished"
+                          else "Planning a visual storyboard with the selected model…" if planning_quality == "polished"
                           else "Asking your local model to plan the animation…")
     try:
         with log_path.open("a", encoding="utf-8") as log:
