@@ -1,6 +1,6 @@
 # Motion Studio for macOS
 
-A local browser dashboard for short video assets for DaVinci Resolve. **Abstract video** animates a first frame directly on Apple silicon with the open LTX-Video 2B model; a ComfyUI workflow remains optional. **Data graphics** retains the Ollama and Manim pipeline for precise charts and labeled diagrams. Model output is never executed as Python.
+A local browser dashboard for short video assets for DaVinci Resolve. **Abstract video** animates a first frame directly on Apple silicon with Wan 2.2 TI2V 5B through MLX-Video or LTX-Video 2B; a ComfyUI workflow remains optional. **Data graphics** retains the Ollama and Manim pipeline for precise charts and labeled diagrams. Model output is never executed as Python.
 
 ## Requirements
 
@@ -37,6 +37,21 @@ chmod +x setup_mac.command start.command
 ./start.command
 ```
 
+## Wan 2.2 MLX setup (Apple silicon)
+
+From the Motion Studio folder, run:
+
+```sh
+chmod +x setup_wan_mlx_mac.command
+./setup_wan_mlx_mac.command
+```
+
+This installs [MLX-Video](https://github.com/Blaizzy/mlx-video) in a separate Python environment and downloads a [preconverted Wan 2.2 TI2V 5B Q8 model](https://huggingface.co/Anes1032/Wan2.2-TI2V-5B-mlx-q8) (~19.6 GB) into the ignored `vendor` folder. Keep at least 25 GB of free disk space. It does not reuse LTX weights or credits. Restart the dashboard, select **Wan 2.2 TI2V 5B · MLX-Video**, and confirm **Wan MLX ready**. The small Preview generates 512×288, 41 frames at 24 fps with 20 diffusion steps; Detail generates 768×448, 49 frames with 40 steps. Both use upstream's MLX VAE decoding and MP4 export. Frames must be 4n+1 and dimensions multiples of 32.
+
+The model's publisher reports stable 720p generation on a 64 GB Apple silicon Mac and recommends 32 GB or more. We have not measured speed or memory on your M1 Pro 32 GB. Close Ollama's large models before running. If MLX runs out of memory, use Preview and send the full log. A successful exit with gray frames is reported as an error and keeps its MP4 for diagnosis.
+
+You can point to an existing compatible model directory with `MOTION_STUDIO_WAN_MODEL_DIR` before starting Motion Studio. It must contain `config.json`, `model.safetensors`, `t5_encoder.safetensors`, and `vae.safetensors` for Wan TI2V 5B.
+
 ## Direct local video setup (Apple silicon)
 
 In Terminal, from the Motion Studio folder:
@@ -52,10 +67,10 @@ This backend is based on upstream's documented MPS support. It has not been run 
 
 ## Workflow
 
-### Abstract video: direct local LTX 2B
+### Abstract video: local Wan MLX or LTX 2B
 
 1. Open **Abstract video**, drop your PNG, JPEG, or WebP first frame, and write the motion prompt.
-2. Leave the optional ComfyUI workflow field empty. Choose **Preview** and click **Generate local video**.
+2. Leave the optional ComfyUI workflow field empty. Select **Wan 2.2 · MLX-Video** after its setup, or **LTX-Video 2B** after LTX setup. Choose **Preview** and click **Generate local video**.
 3. Review the video in the dashboard. Use **Detail** for a separate higher resolution render. Finished MP4s go to `~/Movies/Nisha Motion Graphics/`.
 
 ### Optional LTX Desktop handoff
@@ -96,6 +111,6 @@ The server binds to `127.0.0.1` only. Ollama and Manim communicate locally. The 
 - **Manim setup error:** rerun `setup_mac.command`; if Homebrew reports a missing dependency, install it and rerun the script.
 - **Render takes too long:** use Preview (720p/24 fps); 4K rendering time depends on the Mac and scene complexity.
 - **Render error:** use **Show latest render log** beneath the status. On failure, the details open automatically. **Copy full log** copies the complete log to your clipboard; **Download full log** saves it as a file. A copy also stays under Movies → Nisha Motion Graphics.
-- **Old UI/error persists:** stop the running dashboard with Control-C in its Terminal window, run `git pull origin main` from this project folder, relaunch `start.command`, then hard-refresh the browser with Command-Shift-R. Confirm the header says **BUILD 2026.09.25.9**. If the Terminal says port 8765 is already in use, an older dashboard is still running; close its Terminal window with Control-C first.
+- **Old UI/error persists:** stop the running dashboard with Control-C in its Terminal window, run `git pull origin main` from this project folder, relaunch `start.command`, then hard-refresh the browser with Command-Shift-R. Confirm the header says **BUILD 2026.09.25.12**. If the Terminal says port 8765 is already in use, an older dashboard is still running; close its Terminal window with Control-C first.
 - **A preview is only two seconds despite a longer scene plan:** update `app.py` to build 2026.09.25.2. Older builds could download one partial movie file instead of Manim's finished movie.
 - **Port already in use:** launch with `MOTION_STUDIO_PORT=8766 .venv/bin/python app.py` and visit port 8766.
