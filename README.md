@@ -48,6 +48,8 @@ chmod +x setup_wan_mlx_mac.command
 
 This installs [MLX-Video](https://github.com/Blaizzy/mlx-video) in a separate Python environment and downloads a [preconverted Wan 2.2 TI2V 5B Q8 model](https://huggingface.co/Anes1032/Wan2.2-TI2V-5B-mlx-q8) (~19.6 GB) into the ignored `vendor` folder. Keep at least 25 GB of free disk space. It does not reuse LTX weights or credits. Restart the dashboard, select **Wan 2.2 TI2V 5B · MLX-Video**, and confirm **Wan MLX ready**. The small Preview generates 512×288, 41 frames at 24 fps with 20 diffusion steps; Detail generates 768×448, 49 frames with 40 steps. Both use upstream's MLX VAE decoding and MP4 export. Frames must be 4n+1 and dimensions multiples of 32.
 
+The isolated Wan environment skips MLX-Video's eager LTX imports. Upstream currently imports `mlx-vlm` through its unrelated LTX audio module even for Wan. `configure_wan_mlx.py` adjusts the two installed package initializers in this dedicated environment and verifies the Wan generation import before downloading weights. Rerun the setup after updating MLX-Video.
+
 The model's publisher reports stable 720p generation on a 64 GB Apple silicon Mac and recommends 32 GB or more. We have not measured speed or memory on your M1 Pro 32 GB. Close Ollama's large models before running. If MLX runs out of memory, use Preview and send the full log. A successful exit with gray frames is reported as an error and keeps its MP4 for diagnosis.
 
 You can point to an existing compatible model directory with `MOTION_STUDIO_WAN_MODEL_DIR` before starting Motion Studio. It must contain `config.json`, `model.safetensors`, `t5_encoder.safetensors`, and `vae.safetensors` for Wan TI2V 5B.
