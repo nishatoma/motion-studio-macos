@@ -24,7 +24,7 @@ import local_video
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.25.10"
+BUILD_ID = "2026.09.25.11"
 JOBS_DIR = Path.home() / "Movies" / "Nisha Motion Graphics"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -674,7 +674,7 @@ def parse_abstract_request(content_type: str, body: bytes) -> tuple[str, bytes, 
         raise ValueError("Choose a reference image under 12 MB.")
     abstract_video.image_extension(image)
     preset = fields.get("preset", b"preview").decode("utf-8").strip()
-    if preset not in {"preview", "detail"}:
+    if preset not in {"preview", "detail", "compatibility"}:
         raise ValueError("Choose a valid local video preset.")
     workflow = None
     if raw_workflow:
