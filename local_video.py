@@ -50,7 +50,11 @@ def run(prompt: str, image_path: Path, output_path: Path,
         log(line)
         recent.append(line.rstrip())
         recent = recent[-12:]
-        if "it/s" in line or "Loading" in line or "Downloading" in line:
+        if "100%" in line and "/8" in line:
+            progress("Sampling finished; decoding and saving frames…")
+        elif "Output saved to" in line:
+            progress("Checking the exported video…")
+        elif "it/s" in line or "Loading" in line or "Downloading" in line:
             progress(line.strip()[-180:])
     code = process.wait()
     if code:
@@ -59,5 +63,36 @@ def run(prompt: str, image_path: Path, output_path: Path,
     movies = list(render_dir.glob("*.mp4"))
     if len(movies) != 1:
         raise RuntimeError(f"Expected one MP4 from LTX, found {len(movies)}. See the render log.")
+    _check_visual_output(movies[0], log)
     shutil.copy2(movies[0], output_path)
     return output_path
+
+
+def _check_visual_output(movie: Path, log: Callable[[str], None]) -> None:
+    """Reject a uniformly colored render while retaining upstream MP4 for diagnosis."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        log("FFmpeg unavailable; skipped visual output check.\n")
+        return
+    command = [ffmpeg, "-v", "error", "-i", str(movie), "-vf",
+               "fps=1,scale=64:36,format=rgb24", "-frames:v", "4",
+               "-f", "rawvideo", "-"]
+    result = subprocess.run(command, capture_output=True, timeout=90)
+    if result.returncode:
+        raise RuntimeError("LTX saved an MP4, but FFmpeg could not read its frames: "
+                           + result.stderr.decode("utf-8", errors="replace")[-300:])
+    frame_bytes = 64 * 36 * 3
+    frames = [result.stdout[i:i + frame_bytes]
+              for i in range(0, len(result.stdout), frame_bytes)
+              if len(result.stdout[i:i + frame_bytes]) == frame_bytes]
+    if not frames:
+        raise RuntimeError("LTX saved an MP4 with no readable frames.")
+    ranges = [max(frame) - min(frame) for frame in frames]
+    log(f"Output check: {len(frames)} sampled frames, RGB ranges {ranges}.\n")
+    if len(frames) >= 2 and all(span <= 10 for span in ranges):
+        raise RuntimeError(
+            "LTX produced a nearly uniform video (gray/blank frames). "
+            "The MP4 was kept under ltx-output for diagnosis. "
+            "This can be a model or Apple MPS numerical failure; "
+            "a different video encoder will not restore missing image detail."
+        )
