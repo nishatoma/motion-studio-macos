@@ -19,7 +19,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.25.6"
+BUILD_ID = "2026.09.25.7"
 JOBS_DIR = Path.home() / "Movies" / "Nisha Motion Graphics"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -128,7 +128,7 @@ def validate_storyboard(raw: Any) -> dict[str, Any]:
         scenes.append({"layout": layout, "title": title, "subtitle": subtitle,
                        "labels": safe_labels, "accent": accent,
                        "duration": max(2.1, min(5.0, float(entry.get("duration", 3.2))))})
-    return {"template": "storyboard", "background": "#07131F", "scenes": scenes,
+    return {"template": "storyboard", "background": "#0C1019", "scenes": scenes,
             "_source": "Ollama storyboard + fixed visual layouts"}
 
 
@@ -142,7 +142,7 @@ Return ONLY JSON matching the schema. Choose one of these visual layouts for eac
 - cycle: 3-5 elements of a repeating loop.
 - layers: 2-5 stacked costs, pressures, or components.
 - network: 3-5 ideas connected to a central theme.
-Use {"1-2" if large_model else "2-4"} scenes with varied layouts, 2.5-4 seconds each. A title is a short on-screen claim (max 7 words), subtitle is one helpful phrase, and each label is at most 4 words. Make the visual relationships specific to the user's idea. Preserve requested names, numbers, and causal order. Do not invent facts or add investment returns. Avoid repeating the same labels across scenes. Choose aqua, gold, coral, or violet for emphasis. The renderer handles positions and animation. Do not include coordinates, Python, markdown, or code fences.
+Use {"1-2" if large_model else "2-4"} scenes with varied layouts, 2.5-4 seconds each. A title is a short on-screen claim (max 7 words), subtitle is one helpful phrase, and each label is at most 4 words. Make the visual relationships specific to the user's idea. Preserve requested names, numbers, and causal order. Do not invent facts or add investment returns. Avoid repeating the same labels across scenes. Choose gold for the main payoff or money amount; use aqua, coral, or violet when a different relationship needs emphasis. The renderer applies a dark background and a shared glow finish to every scene. Do not include coordinates, Python, markdown, or code fences.
 User request: {prompt}{critique}"""
 
 
@@ -179,10 +179,17 @@ def ollama_models() -> list[str]:
         return []
 
 
-def validate_color(value: Any, default: str = "#62E6D5") -> str:
-    if isinstance(value, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", value):
-        return value.upper()
-    return default
+def validate_color(value: Any, default: str = "#55EDE3") -> str:
+    """Keep free-form model colors inside the channel's readable accent palette."""
+    if not isinstance(value, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+        return default
+    rgb = tuple(int(value[i:i + 2], 16) for i in (1, 3, 5))
+    if max(rgb) < 80:
+        return default
+    palette = ("#55EDE3", "#FFB56B", "#FF7972", "#B9A0FF", "#F4F9FB")
+    return min(palette, key=lambda hex_color: sum(
+        (channel - int(hex_color[i:i + 2], 16)) ** 2
+        for channel, i in zip(rgb, (1, 3, 5))))
 
 
 def validate_spec(spec: Any) -> dict[str, Any]:
@@ -191,7 +198,7 @@ def validate_spec(spec: Any) -> dict[str, Any]:
         raise ValueError("The model did not return a valid animation plan.")
     if not 1 <= len(spec["beats"]) <= 12:
         raise ValueError("The animation plan must have between 1 and 12 beats.")
-    clean: dict[str, Any] = {"background": validate_color(spec.get("background"), "#07131F"), "beats": []}
+    clean: dict[str, Any] = {"background": "#0C1019", "beats": []}
     allowed = {"text", "title", "line", "circle", "rectangle", "graph", "face_marker", "number"}
     for beat in spec["beats"]:
         if not isinstance(beat, dict):
@@ -218,7 +225,9 @@ def validate_spec(spec: Any) -> dict[str, Any]:
             kind = aliases.get(kind, kind)
             if kind not in allowed:
                 raise ValueError(f"Unsupported object type '{kind or '(missing)'}'. Try: {', '.join(sorted(allowed))}.")
-            out = {"type": kind, "color": validate_color(item.get("color")),
+            default_color = ("#FFB56B" if kind in {"title", "number", "face_marker"}
+                             else "#F4F9FB" if kind == "text" else "#55EDE3")
+            out = {"type": kind, "color": validate_color(item.get("color"), default_color),
                    "position": _pair(item.get("position", [0, 0]), [-1, 0])}
             if kind in {"text", "title", "number"}:
                 text = str(item.get("text", ""))[:100]
@@ -253,7 +262,7 @@ def _pair(value: Any, fallback: list[float]) -> list[float]:
 
 def make_prompt(user_prompt: str) -> str:
     return f"""Create a short, polished 2D motion-graphics sequence for a personal-finance YouTube video.
-Return ONLY JSON that follows the supplied schema. For each item's `type`, use only one exact value from this list: text, title, number, line, circle, rectangle, graph, face_marker. Do not invent new object types such as axes, arrow, label, or icon; express those ideas using graph, line, text, circle, or face_marker. Create 3 to 7 beats, each 1 to 4 seconds. Every explicitly requested dollar milestone must appear as a text or number item containing its exact label. Never substitute generic circles or lines for named milestones. Keep text concise and legible. Use a dark navy background, aqua accents, restrained bloom-like color contrast, strong composition, and meaningful reveals. Coordinates are centered Manim frame coordinates: x roughly -7 to 7, y roughly -4 to 4. For graphs, use graph type and labels; if the user asks for a face moving along the curve, set the graph item's marker to true. Do not add markdown or code fences.
+Return ONLY JSON that follows the supplied schema. For each item's `type`, use only one exact value from this list: text, title, number, line, circle, rectangle, graph, face_marker. Do not invent new object types such as axes, arrow, label, or icon; express those ideas using graph, line, text, circle, or face_marker. Create 3 to 7 beats, each 1 to 4 seconds. Every explicitly requested dollar milestone must appear as a text or number item containing its exact label. Never substitute generic circles or lines for named milestones. Keep text concise and legible. Use warm amber #FFB56B for the focal amount, bright aqua #55EDE3 for supporting connections, and white #F4F9FB for labels. The renderer applies a dark background and glow finish. Coordinates are centered Manim frame coordinates: x roughly -7 to 7, y roughly -4 to 4. For graphs, use graph type and labels; if the user asks for a face moving along the curve, set the graph item's marker to true. Do not add markdown or code fences.
 
 User's animation request: {user_prompt}"""
 
@@ -290,7 +299,7 @@ def directed_growth_plan(prompt: str) -> dict[str, Any] | None:
             and values[-1] > contribution * 12 * (end - start)):
         return None
     return {
-        "template": "portfolio_growth", "background": "#07131F",
+        "template": "portfolio_growth", "background": "#0C1019",
         "monthly": contribution, "start_age": start, "end_age": end,
         "milestones": [{"label": label, "value": value} for label, value in zip(labels, values)],
         "marker": bool(re.search(r"\b(face|head)\b", prompt, re.I)),
@@ -322,7 +331,7 @@ def validated_plan(plan: dict[str, Any]) -> dict[str, Any]:
     values = [item["value"] for item in clean_milestones]
     if not all(a < b for a, b in zip(values, values[1:])) or values[-1] <= monthly * 12 * (end - start):
         raise ValueError("Milestones must rise above total contributions.")
-    return {"template": "portfolio_growth", "background": "#07131F", "monthly": monthly,
+    return {"template": "portfolio_growth", "background": "#0C1019", "monthly": monthly,
             "start_age": start, "end_age": end, "milestones": clean_milestones,
             "marker": bool(plan.get("marker")), "_source": "directed investment graph layout"}
 
@@ -357,7 +366,7 @@ def finance_graph_fallback(prompt: str) -> dict[str, Any] | None:
     show_marker = bool(re.search(r"\b(face|head)\b", prompt, re.I))
     beats: list[dict[str, Any]] = [
         {"duration": 1.0, "items": [{"type": "title", "text": title,
-                                      "position": [-2.0, 3.0], "size": 42, "color": "#F4F9FB"}]},
+                                      "position": [-2.0, 3.0], "size": 42, "color": "#FFB56B"}]},
         {"duration": 3.0, "items": [{"type": "graph", "curve": "exponential",
                                       "position": [-2.0, -0.15], "size": [6.5, 3.4],
                                       "x_label": age_label, "y_label": "Portfolio Value",
@@ -367,7 +376,7 @@ def finance_graph_fallback(prompt: str) -> dict[str, Any] | None:
         beats.append({"duration": 1.0, "items": [{"type": "number", "text": amount,
                        "position": [4.1, 2.0 - index * 0.85], "size": 43,
                        "color": "#F6C76B" if index == len(milestones) - 1 else "#62E6D5"}]})
-    plan = validate_spec({"background": "#07131F", "beats": beats})
+    plan = validate_spec({"background": "#0C1019", "beats": beats})
     plan["_source"] = "built-in graph layout (model omitted requested milestones)"
     return plan
 
@@ -541,9 +550,36 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
             raise RuntimeError("Manim render failed. Expand the error details below to see the full output.")
         final_path = job_dir / "animation.mp4"
         finished_movie = max(finished_movies, key=lambda path: path.stat().st_mtime)
-        shutil.copy2(finished_movie, final_path)
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            raise RuntimeError("FFmpeg is required for the glow finish. Run setup_mac.command and restart the dashboard.")
+        # Bloom only the brighter parts. Blur at quarter size so 4K renders
+        # retain a soft halo without paying the full-resolution blur cost.
+        glow_filter = (
+            "[0:v]format=gbrp,split[base][lights];"
+            "[lights]scale=iw/4:ih/4:flags=bilinear,"
+            "lutrgb=r='if(gte(val,80),val,0)':g='if(gte(val,80),val,0)':"
+            "b='if(gte(val,80),val,0)',gblur=sigma=6,"
+            "scale=iw*4:ih*4:flags=bilinear[halo];"
+            "[base][halo]blend=all_mode=screen:all_opacity=0.75,"
+            "format=yuv420p[v]"
+        )
+        command = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(finished_movie),
+                   "-filter_complex", glow_filter, "-map", "[v]", "-map", "0:a?",
+                   "-c:v", "libx264", "-crf", "18", "-preset", "veryfast" if preset == "preview" else "medium",
+                   "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", str(final_path)]
+        with LOCK:
+            job["message"] = "Adding the cinematic glow finish…"
         with log_path.open("a", encoding="utf-8") as log:
-            log.write(f"\nCopied finished movie: {finished_movie}\n")
+            log.write("Glow command: " + " ".join(command) + "\n")
+        glow = subprocess.run(command, capture_output=True, text=True, timeout=1800)
+        process_output += "\nFFMPEG STDOUT\n" + glow.stdout + "\nFFMPEG STDERR\n" + glow.stderr
+        with log_path.open("a", encoding="utf-8") as log:
+            log.write("\nFFmpeg output:\n" + glow.stdout + glow.stderr)
+        if glow.returncode != 0 or not final_path.is_file() or final_path.stat().st_size == 0:
+            raise RuntimeError("The glow finish failed. Open the render log for FFmpeg details.")
+        with log_path.open("a", encoding="utf-8") as log:
+            log.write(f"\nFinished movie: {final_path}\n")
         with LOCK:
             message = ("Render ready. Visuals use a directed layout."
                        if plan.get("template") else "Render ready.")
