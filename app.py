@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from email import policy
+from email.parser import BytesParser
 import os
 import re
 import shutil
@@ -17,9 +19,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import abstract_video
+
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.25.7"
+BUILD_ID = "2026.09.25.8"
 JOBS_DIR = Path.home() / "Movies" / "Nisha Motion Graphics"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -608,6 +612,69 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
                        log_url=f"/logs/{job_id}")
 
 
+def render_abstract_job(job_id: str, prompt: str, image_data: bytes,
+                        workflow: dict[str, Any]) -> None:
+    job_dir = JOBS_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    log_path = job_dir / "motion-studio.log"
+    log_path.write_text("Abstract video job started.\nProvider: local ComfyUI\n", encoding="utf-8")
+    try:
+        suffix = abstract_video.image_extension(image_data)
+        (job_dir / ("reference" + suffix)).write_bytes(image_data)
+        (job_dir / "motion-prompt.txt").write_text(prompt + "\n", encoding="utf-8")
+        (job_dir / "workflow.json").write_text(json.dumps(workflow, indent=2), encoding="utf-8")
+        def progress(message: str) -> None:
+            with LOCK:
+                JOBS[job_id].update(status="rendering", message=message)
+        def log(message: str) -> None:
+            with log_path.open("a", encoding="utf-8") as file:
+                file.write(message)
+        output = abstract_video.run(prompt, image_data, workflow, job_dir / "animation.mp4", progress, log)
+        with LOCK:
+            JOBS[job_id].update(status="complete", message="Abstract video ready.",
+                                kind="abstract", video=f"/files/{job_id}/animation.mp4",
+                                filename=str(output), duration=None,
+                                quality="ComfyUI workflow output", details=log_path.read_text(encoding="utf-8"),
+                                log_url=f"/logs/{job_id}", plan_source="local ComfyUI")
+    except Exception as exc:
+        details = traceback.format_exc()
+        with log_path.open("a", encoding="utf-8") as file:
+            file.write("\nERROR\n" + details)
+        with LOCK:
+            JOBS[job_id].update(status="error", message=str(exc), details=details,
+                                kind="abstract", log_url=f"/logs/{job_id}")
+
+
+def parse_abstract_request(content_type: str, body: bytes) -> tuple[str, bytes, dict[str, Any]]:
+    if not content_type.lower().startswith("multipart/form-data;"):
+        raise ValueError("Upload a reference image and ComfyUI API workflow.")
+    header = f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode()
+    message = BytesParser(policy=policy.default).parsebytes(header + body)
+    if not message.is_multipart():
+        raise ValueError("Could not read the uploaded files.")
+    fields: dict[str, bytes] = {}
+    for part in message.iter_parts():
+        name = part.get_param("name", header="content-disposition")
+        if name in {"prompt", "image", "workflow"} and name not in fields:
+            fields[name] = part.get_payload(decode=True) or b""
+    prompt = fields.get("prompt", b"").decode("utf-8").strip()
+    image = fields.get("image", b"")
+    raw_workflow = fields.get("workflow", b"")
+    if not prompt or len(prompt) > MAX_PROMPT:
+        raise ValueError("Enter a motion prompt of up to 5,000 characters.")
+    if not image or len(image) > abstract_video.MAX_IMAGE_BYTES:
+        raise ValueError("Choose a reference image under 12 MB.")
+    abstract_video.image_extension(image)
+    if not raw_workflow or len(raw_workflow) > abstract_video.MAX_WORKFLOW_BYTES:
+        raise ValueError("Select a ComfyUI API workflow JSON under 2 MB.")
+    try:
+        workflow = json.loads(raw_workflow)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise ValueError("The workflow file is not valid JSON.") from exc
+    abstract_video.fill_workflow(workflow, prompt, "reference.png")
+    return prompt, image, workflow
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "MotionStudio/0.1"
 
@@ -631,6 +698,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, (WEB / "index.html").read_bytes(), "text/html; charset=utf-8")
         elif path == "/api/health":
             self._json(200, {"models": ollama_models(), "manim": (ROOT / ".venv" / "bin" / "manim").exists(),
+                             "comfyui": abstract_video.is_ready(),
                              "output": str(JOBS_DIR), "ollama_url": OLLAMA_URL,
                              "build": BUILD_ID, "project_root": str(ROOT), "app_file": str(Path(__file__).resolve())})
         elif path.startswith("/api/jobs/"):
@@ -658,6 +726,24 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "Not found"})
 
     def do_POST(self) -> None:
+        if self.path == "/api/abstract/jobs":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > 15 * 1024 * 1024:
+                    return self._json(413, {"error": "Upload must be under 15 MB."})
+                prompt, image, workflow = parse_abstract_request(
+                    self.headers.get("Content-Type", ""), self.rfile.read(length))
+                if not abstract_video.is_ready():
+                    return self._json(503, {"error": "Start local ComfyUI on 127.0.0.1:8188, then try again. You can still use the frame and prompt in LTX Desktop."})
+                job_id = uuid.uuid4().hex[:12]
+                with LOCK:
+                    JOBS[job_id] = {"id": job_id, "kind": "abstract", "status": "queued",
+                                    "message": "Queued for local ComfyUI…", "created": time.time()}
+                threading.Thread(target=render_abstract_job,
+                                 args=(job_id, prompt, image, workflow), daemon=True).start()
+                return self._json(202, {"id": job_id})
+            except ValueError as exc:
+                return self._json(400, {"error": str(exc)})
         rerender_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/rerender", self.path)
         if self.path != "/api/jobs" and not rerender_match:
             return self._json(404, {"error": "Not found"})
