@@ -1,6 +1,6 @@
 # Motion Studio for macOS
 
-A local browser dashboard for generating short 2D motion graphics for DaVinci Resolve. Supported monthly-investing graph prompts use a directed layout with calculated milestone positions. Other abstract prompts use an Ollama storyboard that selects from statements, comparisons, flows, timelines, cycles, layers, and networks. Manim renders the MP4; model output is never executed as Python.
+A local browser dashboard for short video assets for DaVinci Resolve. **Abstract video** accepts a first frame for image-to-video generation via local ComfyUI, or provides a frame and motion prompt to use in LTX Desktop. **Data graphics** retains the Ollama and Manim pipeline for precise charts and labeled diagrams. Model output is never executed as Python.
 
 ## Requirements
 
@@ -39,16 +39,33 @@ chmod +x setup_mac.command start.command
 
 ## Workflow
 
-1. Write a visual prompt, choose the Ollama model, **Polished** planning, and the 720p preset. Click **Generate animation** to create a new scene plan and preview. Polished uses a directed layout for supported monthly-investing graphs. For other prompts it creates one concise storyboard with 14B+ models, two candidates with 7B, or three with smaller models. Fast uses one experimental shape plan.
-2. Review the complete preview. If you want a new scene plan, revise the prompt and click **Generate animation** again.
-3. For the approved scene, choose 1080p or 4K and click **Render same scene at selected quality**. This reuses the validated plan without another Ollama request.
-4. Click **Download MP4** after that render finishes. Download always saves the quality currently shown in the player. Completed MP4s are also under `~/Movies/Nisha Motion Graphics/` and can be imported into Resolve.
+### Abstract video: LTX Desktop handoff
+
+1. Open **Abstract video** and drop a PNG, JPEG, or WebP first frame into the dashboard. Check its preview.
+2. Refine the motion prompt and click **Copy motion prompt**. Click **Download selected frame** if the original is not already saved on your Mac.
+3. Open [LTX Desktop](https://github.com/Lightricks/LTX-Desktop/releases), choose **Image to Video**, import the frame, paste the motion prompt, and generate there. Bring its video into Resolve.
+
+LTX Desktop is a separate app; Motion Studio does not silently submit to its private backend. On Apple Silicon, its local mode needs at least 15 GB *free* RAM at launch and a large model download. Its desktop local output tops out at 1080p; 4K in that product uses the paid API. Your 32 GB Mac may qualify if enough memory and disk space are free, but test it before relying on it for production.
+
+### Abstract video: generate inside this dashboard with local ComfyUI
+
+1. Start [ComfyUI](https://github.com/Comfy-Org/ComfyUI) locally on its default `127.0.0.1:8188` address, install an image-to-video model, and verify a workflow generates a video in ComfyUI itself.
+2. Export that working workflow **in API format**. In the exported JSON file, replace the positive prompt string with `{{PROMPT}}` and the image filename in the `LoadImage` node with `{{IMAGE}}`. Leave the model, sampler, duration, resolution, and MP4 video save node as configured. The placeholders are literal JSON string contents.
+3. In Motion Studio, drop your first frame, select that API JSON file, and click **Generate with local ComfyUI**. The dashboard uploads the frame only to your local ComfyUI server, queues the workflow, polls for completion, and saves the MP4 under `~/Movies/Nisha Motion Graphics/`.
+
+The imported workflow must contain both placeholders and produce an MP4, WebM, or MOV output. The app converts WebM/MOV to MP4 using FFmpeg. This connector does not install ComfyUI or model weights; those depend on your chosen local workflow and available hardware.
+
+### Data graphics
+
+1. Open **Data graphics**, write a visual prompt, choose an Ollama model, **Polished** planning, and the 720p preset. Click **Generate animation**. Polished uses a directed layout for supported monthly-investing graphs; other suitable prompts use the limited storyboard vocabulary.
+2. Review the preview. For the approved scene, choose 1080p or 4K and click **Render same scene at selected quality**. This reuses the validated plan without another Ollama request.
+3. Click **Download MP4**. Completed MP4s are also under `~/Movies/Nisha Motion Graphics/`.
 
 The directed graph includes a small face-shaped marker placeholder. For an ending milestone, it derives an illustrative constant annual return so the curve actually reaches the requested amount. The percentage appears in a footnote. Replace the marker with your own keyed or masked footage in Resolve if desired.
 
 ## Current scope
 
-The storyboard supports seven reusable visual relationships: bold statements, comparisons, flows, timelines, cycles, stacked layers, and networks. It can visualize many abstract prompts, but it cannot draw arbitrary characters, cinematic scenes, or bespoke illustrations from a sentence. Fast mode retains the older shapes and graph vocabulary. This build exports MP4; transparent alpha exports, direct Resolve project integration, and free-form custom Manim code are not included.
+The Manim storyboard supports seven reusable visual relationships: bold statements, comparisons, flows, timelines, cycles, stacked layers, and networks. It cannot draw arbitrary cinematic imagery from a sentence; use Abstract video for that. Fast mode retains the older shapes and graph vocabulary. This build exports MP4; transparent alpha exports, direct Resolve project integration, and free-form custom Manim code are not included.
 
 The server binds to `127.0.0.1` only. Ollama and Manim communicate locally. The app does not upload prompts or renders to a hosted service.
 
@@ -60,6 +77,6 @@ The server binds to `127.0.0.1` only. Ollama and Manim communicate locally. The 
 - **Manim setup error:** rerun `setup_mac.command`; if Homebrew reports a missing dependency, install it and rerun the script.
 - **Render takes too long:** use Preview (720p/24 fps); 4K rendering time depends on the Mac and scene complexity.
 - **Render error:** use **Show latest render log** beneath the status. On failure, the details open automatically. **Copy full log** copies the complete log to your clipboard; **Download full log** saves it as a file. A copy also stays under Movies → Nisha Motion Graphics.
-- **Old UI/error persists:** stop the running dashboard with Control-C in its Terminal window, run `git pull origin main` from this project folder, relaunch `start.command`, then hard-refresh the browser with Command-Shift-R. Confirm the header says **BUILD 2026.09.25.7**. If the Terminal says port 8765 is already in use, an older dashboard is still running; close its Terminal window with Control-C first.
+- **Old UI/error persists:** stop the running dashboard with Control-C in its Terminal window, run `git pull origin main` from this project folder, relaunch `start.command`, then hard-refresh the browser with Command-Shift-R. Confirm the header says **BUILD 2026.09.25.8**. If the Terminal says port 8765 is already in use, an older dashboard is still running; close its Terminal window with Control-C first.
 - **A preview is only two seconds despite a longer scene plan:** update `app.py` to build 2026.09.25.2. Older builds could download one partial movie file instead of Manim's finished movie.
 - **Port already in use:** launch with `MOTION_STUDIO_PORT=8766 .venv/bin/python app.py` and visit port 8766.
