@@ -21,10 +21,10 @@
       <label class="label" for="prompt">What should happen?</label>
       <textarea id="prompt">Show how a pay raise can disappear into lifestyle inflation. Animate extra income flowing into bigger bills and impulse spending, then compare that path with investing the extra money.</textarea>
       <div class="row"><div><label class="label" for="model">Local model</label><select id="model"><option>Looking for Ollama…</option></select></div><div><label class="label" for="preset">Render quality</label><select id="preset"><option value="preview">Preview · 720p / 24 fps</option><option value="1080p">YouTube · 1080p / 24 fps</option><option value="4k24">YouTube 4K · 24 fps</option><option value="4k60">4K · 60 fps</option></select></div></div>
-      <label class="label" for="planningQuality">Planning quality</label><select id="planningQuality"><option value="polished">Polished · visual storyboard / best of 3 plans</option><option value="fast">Fast · one experimental model plan</option></select>
+      <label class="label" for="planningQuality">Planning quality</label><select id="planningQuality"><option value="polished">Polished · visual storyboard / adaptive model budget</option><option value="fast">Fast · one experimental model plan</option></select>
       <button id="render" class="button">Generate animation</button>
       <button id="rerender" class="button secondary" hidden>Render same scene at selected quality</button>
-      <p class="hint">Polished builds a directed graph for supported investment prompts. Other ideas become a storyboard of comparisons, flows, timelines, cycles, layers, statements, or networks. It compares three storyboard drafts. Fast uses the older shape planner. Choose 4K and render the same scene after previewing.</p>
+      <p class="hint">Polished builds a directed graph for supported investment prompts. Other ideas become visual storyboards. It uses one concise draft on 14B+ models, two on 7B, and three on smaller models. Fast uses the older shape planner. Choose 4K and render the same scene after previewing.</p>
       <div id="status" class="status">Checking Ollama and Manim…</div>
       <div class="log-tools"><button id="logToggle" class="linkbtn" type="button" aria-expanded="false">Show latest render log</button><a id="logDownload" class="linkbtn" hidden download="motion-studio.log">Download full log</a></div>
       <div id="logPanel" class="log-panel" hidden><pre id="logText">No render log yet. Run an animation; full Manim output and Python tracebacks will appear here if anything fails.</pre></div>
