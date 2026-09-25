@@ -10,20 +10,26 @@ import sysconfig
 from pathlib import Path
 
 PACKAGE = Path(sysconfig.get_path("purelib")) / "mlx_video"
-TARGETS = (PACKAGE / "__init__.py", PACKAGE / "models" / "__init__.py")
 WAN_IMPORT = "from mlx_video.models.wan_2 import WanModel, WanModelConfig"
-CONTENTS = ('"""Wan-only exports for Motion Studio\'s isolated MLX-Video install."""\n'
-            + WAN_IMPORT + '\n__all__ = ["WanModel", "WanModelConfig"]\n')
+WAN_CONTENTS = ('"""Wan-only exports for Motion Studio\'s isolated MLX-Video install."""\n'
+                + WAN_IMPORT + '\n__all__ = ["WanModel", "WanModelConfig"]\n')
+LTX_CONTENTS = '"""Package namespace needed for Wan\'s BaseModelConfig import."""\n'
+TARGETS = (
+    (PACKAGE / "__init__.py", WAN_CONTENTS, WAN_IMPORT),
+    (PACKAGE / "models" / "__init__.py", WAN_CONTENTS, WAN_IMPORT),
+    (PACKAGE / "models" / "ltx_2" / "__init__.py", LTX_CONTENTS,
+     "from mlx_video.models.ltx_2.config import"),
+)
 
 
 def main() -> None:
-    for target in TARGETS:
+    for target, replacement, required in TARGETS:
         original = target.read_text(encoding="utf-8")
-        if original == CONTENTS:
+        if original == replacement:
             continue
-        if WAN_IMPORT not in original or "from mlx_video.models.ltx_2 import" not in original:
+        if required not in original or "from mlx_video.models.ltx_2" not in original:
             raise RuntimeError(f"Unexpected MLX-Video package initializer: {target}")
-        target.write_text(CONTENTS, encoding="utf-8")
+        target.write_text(replacement, encoding="utf-8")
         print(f"Disabled unrelated LTX eager imports in {target}")
 
 
