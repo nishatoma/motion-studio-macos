@@ -104,6 +104,8 @@ The imported workflow must contain both placeholders and produce an MP4, WebM, o
 
 For the fixed four-stage overlay, begin the prompt with **“Financial stages arrow”**. This selects a directed Manim animation: coral Stage 1 through violet Stage 4 in a vertical stack, a right-pointing arrow on the left that moves down one card at a time, and a final uncertain position between Stages 2 and 3. It does not call Ollama; select **Transparent background for Resolve (.mov)** for a footage overlay. Use the 1080p / 24 fps preset for delivery.
 
+For a two-second white-word/red-line animation, use **“Awareness strikethrough”** or describe a red line crossing through the word awareness. This selects a directed Manim scene with only **AWARENESS** centered on screen: the white word fades in for 0.35 seconds, waits 0.15 seconds, a red line draws across it for exactly 1 second, and the result holds for 0.5 seconds. No other labels are added. Use the transparent MOV option for an overlay, or leave it unchecked for a dark MP4.
+
 The directed graph includes a small face-shaped marker placeholder. For an ending milestone, it derives an illustrative constant annual return so the curve actually reaches the requested amount. The percentage appears in a footnote. Replace the marker with your own keyed or masked footage in Resolve if desired.
 
 ## Current scope
