@@ -123,6 +123,9 @@ class GeneratedScene(Scene):
         spec = json.loads(spec_file.read_text(encoding="utf-8"))
         if not config.transparent:
             self.camera.background_color = color("#0C1019")
+        if spec.get("template") == "financial_stages":
+            self.financial_stages()
+            return
         if spec.get("template") == "portfolio_growth":
             self.portfolio_growth(spec)
             return
@@ -247,6 +250,36 @@ class GeneratedScene(Scene):
                 cards.add(storyboard_card(label, x, y, 2.3, 0.7, tint, 22))
             items.add(links, storyboard_card(scene["title"], 0, -0.35, 3.2, 1.0, tint, 25), *cards)
         return items
+
+    def financial_stages(self):
+        """Four immobile cards; the arrow alone searches for the current stage."""
+        shades = ["#FF6C61", "#F8C85D", "#50D8CA", "#AC8AF5"]
+        rows = [2.65, 0.88, -0.89, -2.66]
+        cards = VGroup()
+        for index, (shade, y) in enumerate(zip(shades, rows), start=1):
+            card = RoundedRectangle(width=6.8, height=1.32, corner_radius=0.22,
+                                    fill_color=shade, fill_opacity=1,
+                                    stroke_color="#D9F2F2", stroke_width=2).move_to([1.55, y, 0])
+            label = fitted_text(f"STAGE {index}", 52, "#102331", 6.2, True).move_to(card)
+            cards.add(VGroup(card, label))
+
+        outline = RoundedRectangle(width=6.96, height=1.48, corner_radius=0.27,
+                                   fill_opacity=0, stroke_color="#FFF3D4", stroke_width=5)
+        outline.move_to(cards[0])
+        arrow = Arrow([-6.1, rows[0], 0], [-2.08, rows[0], 0], buff=0,
+                      color=WHITE, stroke_width=8, max_tip_length_to_length_ratio=0.14)
+        self.play(FadeIn(cards), FadeIn(outline), FadeIn(arrow), run_time=0.35)
+        self.wait(0.25)
+        for index in range(1, 4):
+            delta = rows[index] - rows[index - 1]
+            self.play(arrow.animate.shift(UP * delta), outline.animate.shift(UP * delta),
+                      run_time=0.45, rate_func=smooth)
+            self.wait(0.25)
+        # Finish unresolved, between Stages 2 and 3, for the narration's "unaware" beat.
+        midpoint = (rows[1] + rows[2]) / 2
+        self.play(arrow.animate.shift(UP * (midpoint - rows[3])), FadeOut(outline),
+                  run_time=0.65, rate_func=smooth)
+        self.wait(0.55)
 
     def portfolio_growth(self, spec):
         monthly = spec["monthly"]
