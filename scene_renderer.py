@@ -121,7 +121,8 @@ class GeneratedScene(Scene):
     def construct(self):
         spec_file = Path(os.environ["MOTION_STUDIO_SPEC"])
         spec = json.loads(spec_file.read_text(encoding="utf-8"))
-        self.camera.background_color = color("#0C1019")
+        if not config.transparent:
+            self.camera.background_color = color("#0C1019")
         if spec.get("template") == "portfolio_growth":
             self.portfolio_growth(spec)
             return
