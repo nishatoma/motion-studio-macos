@@ -25,7 +25,7 @@ import wan_video
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.26.2"
+BUILD_ID = "2026.09.26.3"
 JOBS_DIR = Path.home() / "Movies" / "Nisha Motion Graphics"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -321,7 +321,23 @@ def financial_stages_plan(prompt: str) -> dict[str, Any] | None:
             "_source": "directed financial stages arrow"}
 
 
+def awareness_strike_plan(prompt: str) -> dict[str, Any] | None:
+    """Keep the exact word and one-second strike out of model interpretation."""
+    value = prompt.lower()
+    if not re.search(r"\bawareness\b", value):
+        return None
+    explicit = "awareness strikethrough" in value or "awareness strike-through" in value
+    described = "red line" in value and any(term in value for term in ("through", "across", "cross", "strike"))
+    if not explicit and not described:
+        return None
+    return {"template": "awareness_strike", "background": "#0C1019",
+            "_source": "directed awareness strike-through"}
+
+
 def validated_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    if plan.get("template") == "awareness_strike":
+        return {"template": "awareness_strike", "background": "#0C1019",
+                "_source": "directed awareness strike-through"}
     if plan.get("template") == "financial_stages":
         return {"template": "financial_stages", "background": "#0C1019",
                 "_source": "directed financial stages arrow"}
@@ -473,6 +489,9 @@ def generate_storyboard(prompt: str, model: str) -> dict[str, Any]:
 
 
 def generate_plan(prompt: str, model: str, planning_quality: str = "polished") -> dict[str, Any]:
+    strike = awareness_strike_plan(prompt)
+    if strike:
+        return strike
     stages = financial_stages_plan(prompt)
     if stages:
         return stages
@@ -530,6 +549,7 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
         job = JOBS[job_id]
         job["status"] = "planning"
         job["message"] = ("Reusing the scene plan…" if existing_plan is not None
+                          else "Drawing a one-second strike through AWARENESS…" if awareness_strike_plan(prompt)
                           else "Laying out four fixed stages and a moving arrow…" if financial_stages_plan(prompt)
                           else "Designing a clean graph layout…" if planning_quality == "polished" and directed_growth_plan(prompt)
                           else "Planning a visual storyboard with the selected model…" if planning_quality == "polished"
@@ -629,7 +649,9 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
         with LOCK:
             message = ("Render ready. Visuals use a directed layout."
                        if plan.get("template") else "Render ready.")
-            if plan.get("template") == "financial_stages":
+            if plan.get("template") == "awareness_strike":
+                duration = 2.0
+            elif plan.get("template") == "financial_stages":
                 duration = 3.9
             elif plan.get("template") == "portfolio_growth":
                 duration = 0.85 + len(plan["milestones"]) * 1.83 + 1.2
@@ -857,7 +879,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(400, {"error": "Choose a valid planning quality."})
             if not prompt or len(prompt) > MAX_PROMPT:
                 return self._json(400, {"error": f"Enter a prompt between 1 and {MAX_PROMPT} characters."})
-            if not financial_stages_plan(prompt) and model not in ollama_models():
+            if not (financial_stages_plan(prompt) or awareness_strike_plan(prompt)) and model not in ollama_models():
                 return self._json(400, {"error": "Choose a model shown in the dashboard. Confirm Ollama is running."})
             job_id = uuid.uuid4().hex[:12]
             with LOCK:
