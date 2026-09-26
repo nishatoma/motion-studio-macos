@@ -13,7 +13,7 @@ Manim rendering runs locally. An Apple silicon Mac is not required; slower Macs 
 
 ## Visual style
 
-Every render uses a deep charcoal background, warm amber focal points, vivid aqua supporting lines, restrained coral/violet accents, and soft light around bright elements. This applies to graphs, storyboards, and fast mode alike. The glow is added by FFmpeg after Manim finishes, so final 4K renders take an extra encoding pass. Preview at 720p while adjusting timing and composition.
+Data graphics use warm amber focal points, vivid aqua supporting lines, and restrained coral/violet accents. The default dark MP4 includes a deep charcoal background and an FFmpeg glow finish. The transparent MOV contains only the Manim graphics, without that glow pass. Preview at 720p while adjusting timing and composition.
 
 ## Setup
 
@@ -99,13 +99,14 @@ The imported workflow must contain both placeholders and produce an MP4, WebM, o
 
 1. Open **Data graphics**, write a visual prompt, choose an Ollama model, **Polished** planning, and the 720p preset. Click **Generate animation**. Polished uses a directed layout for supported monthly-investing graphs; other suitable prompts use the limited storyboard vocabulary.
 2. Review the preview. For the approved scene, choose 1080p or 4K and click **Render same scene at selected quality**. This reuses the validated plan without another Ollama request.
-3. Click **Download MP4**. Completed MP4s are also under `~/Movies/Nisha Motion Graphics/`.
+3. For an overlay over footage in Resolve, check **Transparent background for Resolve (.mov)** before either render. This exports a ProRes 4444 MOV with an alpha channel. The browser shows a separate MP4 preview on a dark backing; download the MOV and place it above your footage in Resolve. A normal dark render remains an MP4 with a glow finish. You can switch background mode when rendering the same scene at a higher quality.
+4. Click **Download MOV · alpha** or **Download MP4**. Completed exports are also under `~/Movies/Nisha Motion Graphics/`.
 
 The directed graph includes a small face-shaped marker placeholder. For an ending milestone, it derives an illustrative constant annual return so the curve actually reaches the requested amount. The percentage appears in a footnote. Replace the marker with your own keyed or masked footage in Resolve if desired.
 
 ## Current scope
 
-The Manim storyboard supports seven reusable visual relationships: bold statements, comparisons, flows, timelines, cycles, stacked layers, and networks. It cannot draw arbitrary cinematic imagery from a sentence; use Abstract video for that. Fast mode retains the older shapes and graph vocabulary. This build exports MP4; transparent alpha exports, direct Resolve project integration, and free-form custom Manim code are not included.
+The Manim storyboard supports seven reusable visual relationships: bold statements, comparisons, flows, timelines, cycles, stacked layers, and networks. It cannot draw arbitrary cinematic imagery from a sentence; use Abstract video for that. Fast mode retains the older shapes and graph vocabulary. Transparent export applies to **Data graphics**; image-to-video backends still export opaque MP4. Direct Resolve project integration and free-form custom Manim code are not included.
 
 The server binds to `127.0.0.1` only. Ollama and Manim communicate locally. The app does not upload prompts or renders to a hosted service.
 
