@@ -102,6 +102,8 @@ The imported workflow must contain both placeholders and produce an MP4, WebM, o
 3. For an overlay over footage in Resolve, check **Transparent background for Resolve (.mov)** before either render. This exports a ProRes 4444 MOV with an alpha channel. The browser shows a separate MP4 preview on a dark backing; download the MOV and place it above your footage in Resolve. A normal dark render remains an MP4 with a glow finish. You can switch background mode when rendering the same scene at a higher quality.
 4. Click **Download MOV · alpha** or **Download MP4**. Completed exports are also under `~/Movies/Nisha Motion Graphics/`.
 
+For the fixed four-stage overlay, begin the prompt with **“Financial stages arrow”**. This selects a directed Manim animation: coral Stage 1 through violet Stage 4 in a vertical stack, a right-pointing arrow on the left that moves down one card at a time, and a final uncertain position between Stages 2 and 3. It does not call Ollama; select **Transparent background for Resolve (.mov)** for a footage overlay. Use the 1080p / 24 fps preset for delivery.
+
 The directed graph includes a small face-shaped marker placeholder. For an ending milestone, it derives an illustrative constant annual return so the curve actually reaches the requested amount. The percentage appears in a footnote. Replace the marker with your own keyed or masked footage in Resolve if desired.
 
 ## Current scope
