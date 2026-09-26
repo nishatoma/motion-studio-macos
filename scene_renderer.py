@@ -285,17 +285,41 @@ class GeneratedScene(Scene):
         self.wait(0.55)
 
     def awareness_strike(self):
-        """One white word; a red line crosses it in exactly one second."""
+        """One lit white word with a shadow; a red line crosses in one second."""
         word = Text("AWARENESS", font="Arial", font_size=100,
                     weight="BOLD", color="#F7FAFD")
         word.scale_to_fit_width(10.8).move_to(ORIGIN)
+
+        # Build the light in the scene itself so the alpha-bearing MOV keeps it.
+        # A soft RGBA gradient provides surface spill behind the lettering.
+        height, width = 240, 960
+        yy, xx = np.mgrid[-1:1:complex(height), -1:1:complex(width)]
+        intensity = np.exp(-((xx / 0.72) ** 2 + (yy / 0.48) ** 2) * 2.3)
+        spill_pixels = np.empty((height, width, 4), dtype=np.uint8)
+        spill_pixels[:, :, :3] = (205, 231, 255)
+        spill_pixels[:, :, 3] = (100 * intensity).astype(np.uint8)
+        spill = ImageMobject(spill_pixels).scale_to_fit_width(12.2).move_to(word)
+
+        # Layered outlines soften the glyph edges; offset copies form the
+        # shadow when this is placed over footage in Resolve.
+        bloom = VGroup()
+        for stroke_width, opacity in ((27, 0.07), (17, 0.10), (8, 0.14)):
+            bloom.add(word.copy().set_fill("#DFF3FF", opacity=opacity)
+                      .set_stroke("#DFF3FF", width=stroke_width, opacity=opacity))
+        shadow = VGroup()
+        for shift, opacity in ((0.21, 0.12), (0.14, 0.22), (0.08, 0.42)):
+            shadow.add(word.copy().set_fill("#02050B", opacity=opacity)
+                       .set_stroke("#02050B", width=4, opacity=opacity)
+                       .shift(RIGHT * shift + DOWN * shift))
+
         start = word.get_left() + LEFT * 0.35
         end = word.get_right() + RIGHT * 0.35
+        wide_glow = Line(start, end, color="#FF454B", stroke_width=48, stroke_opacity=0.09)
         glow = Line(start, end, color="#FF454B", stroke_width=27, stroke_opacity=0.22)
         line = Line(start, end, color="#FF454B", stroke_width=13)
-        self.play(FadeIn(word), run_time=0.35)
+        self.play(FadeIn(spill), FadeIn(shadow), FadeIn(bloom), FadeIn(word), run_time=0.35)
         self.wait(0.15)
-        self.play(Create(glow), Create(line), run_time=1.0, rate_func=linear)
+        self.play(Create(wide_glow), Create(glow), Create(line), run_time=1.0, rate_func=linear)
         self.wait(0.5)
 
     def portfolio_growth(self, spec):
