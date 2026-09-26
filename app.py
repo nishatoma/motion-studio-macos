@@ -334,7 +334,24 @@ def awareness_strike_plan(prompt: str) -> dict[str, Any] | None:
             "_source": "directed awareness strike-through"}
 
 
+def green_money_card_plan(prompt: str) -> dict[str, Any] | None:
+    """Render a literal single-card request without inventing storyboard titles."""
+    value = prompt.lower()
+    if (not re.search(r"\b(?:green|emerald)\b", value)
+            or not re.search(r"\b(?:card|rectangle)\b", value)
+            or not re.search(r"\$\s*500\b", value)):
+        return None
+    amounts = re.findall(r"\$\s*\d[\d,]*(?:\.\d+)?", value)
+    if len(amounts) != 1:
+        return None
+    return {"template": "green_money_card", "background": "#0C1019",
+            "_source": "directed green $500 card"}
+
+
 def validated_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    if plan.get("template") == "green_money_card":
+        return {"template": "green_money_card", "background": "#0C1019",
+                "_source": "directed green $500 card"}
     if plan.get("template") == "awareness_strike":
         return {"template": "awareness_strike", "background": "#0C1019",
                 "_source": "directed awareness strike-through"}
@@ -489,6 +506,9 @@ def generate_storyboard(prompt: str, model: str) -> dict[str, Any]:
 
 
 def generate_plan(prompt: str, model: str, planning_quality: str = "polished") -> dict[str, Any]:
+    money_card = green_money_card_plan(prompt)
+    if money_card:
+        return money_card
     strike = awareness_strike_plan(prompt)
     if strike:
         return strike
@@ -549,6 +569,7 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
         job = JOBS[job_id]
         job["status"] = "planning"
         job["message"] = ("Reusing the scene plan…" if existing_plan is not None
+                          else "Drawing the green $500 card…" if green_money_card_plan(prompt)
                           else "Drawing a one-second strike through AWARENESS…" if awareness_strike_plan(prompt)
                           else "Laying out four fixed stages and a moving arrow…" if financial_stages_plan(prompt)
                           else "Designing a clean graph layout…" if planning_quality == "polished" and directed_growth_plan(prompt)
@@ -651,6 +672,8 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
                        if plan.get("template") else "Render ready.")
             if plan.get("template") == "awareness_strike":
                 duration = 2.0
+            elif plan.get("template") == "green_money_card":
+                duration = 3.0
             elif plan.get("template") == "financial_stages":
                 duration = 3.9
             elif plan.get("template") == "portfolio_growth":

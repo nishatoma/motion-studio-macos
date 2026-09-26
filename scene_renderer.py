@@ -126,6 +126,9 @@ class GeneratedScene(Scene):
         if spec.get("template") == "awareness_strike":
             self.awareness_strike()
             return
+        if spec.get("template") == "green_money_card":
+            self.green_money_card()
+            return
         if spec.get("template") == "financial_stages":
             self.financial_stages()
             return
@@ -321,6 +324,27 @@ class GeneratedScene(Scene):
         self.wait(0.15)
         self.play(Create(wide_glow), Create(glow), Create(line), run_time=1.0, rate_func=linear)
         self.wait(0.5)
+
+    def green_money_card(self):
+        """A single alpha-friendly card, with the glow embedded in the scene."""
+        emerald = "#178653"
+        card = RoundedRectangle(width=4.9, height=2.3, corner_radius=0.28,
+                                fill_color=emerald, fill_opacity=1,
+                                stroke_color="#6CEDB3", stroke_width=3)
+        amount = fitted_text("$500", 96, "#FFFFFF", 4.25, True).move_to(card)
+
+        height, width = 200, 440
+        yy, xx = np.mgrid[-1:1:complex(height), -1:1:complex(width)]
+        intensity = np.exp(-((xx / 0.68) ** 4 + (yy / 0.68) ** 4) * 2.3)
+        pixels = np.empty((height, width, 4), dtype=np.uint8)
+        pixels[:, :, :3] = (40, 220, 135)
+        pixels[:, :, 3] = (95 * intensity).astype(np.uint8)
+        spill = ImageMobject(pixels).scale_to_fit_width(6.3).move_to(ORIGIN)
+
+        self.play(FadeIn(spill), GrowFromCenter(card), FadeIn(amount), run_time=0.4)
+        self.play(spill.animate.set_opacity(0.55), run_time=0.45)
+        self.play(spill.animate.set_opacity(1), run_time=0.45)
+        self.wait(1.7)
 
     def portfolio_growth(self, spec):
         monthly = spec["monthly"]
