@@ -326,24 +326,25 @@ class GeneratedScene(Scene):
         self.wait(0.5)
 
     def green_money_card(self):
-        """A single alpha-friendly card, with the glow embedded in the scene."""
-        emerald = "#178653"
-        card = RoundedRectangle(width=4.9, height=2.3, corner_radius=0.28,
+        """One clean emerald card with a transparent, rounded light halo."""
+        emerald, mint = "#087B4F", "#74F0AC"
+        card = RoundedRectangle(width=5.2, height=2.45, corner_radius=0.34,
                                 fill_color=emerald, fill_opacity=1,
-                                stroke_color="#6CEDB3", stroke_width=3)
-        amount = fitted_text("$500", 96, "#FFFFFF", 4.25, True).move_to(card)
+                                stroke_color=mint, stroke_width=3)
+        amount = fitted_text("$500", 104, "#FFFFFF", 4.4, True).move_to(card)
 
-        height, width = 200, 440
-        yy, xx = np.mgrid[-1:1:complex(height), -1:1:complex(width)]
-        intensity = np.exp(-((xx / 0.68) ** 4 + (yy / 0.68) ** 4) * 2.3)
-        pixels = np.empty((height, width, 4), dtype=np.uint8)
-        pixels[:, :, :3] = (40, 220, 135)
-        pixels[:, :, 3] = (95 * intensity).astype(np.uint8)
-        spill = ImageMobject(pixels).scale_to_fit_width(6.3).move_to(ORIGIN)
-
-        self.play(FadeIn(spill), GrowFromCenter(card), FadeIn(amount), run_time=0.4)
-        self.play(spill.animate.set_opacity(0.55), run_time=0.45)
-        self.play(spill.animate.set_opacity(1), run_time=0.45)
+        # Manim can flatten an animated RGBA image to an opaque rectangle.
+        # Transparent rounded vector outlines keep the spill soft in ProRes alpha.
+        halo = VGroup()
+        for width, opacity in ((40, 0.018), (25, 0.035), (13, 0.065)):
+            halo.add(RoundedRectangle(width=5.2, height=2.45, corner_radius=0.34,
+                                      fill_opacity=0, stroke_color=mint,
+                                      stroke_width=width, stroke_opacity=opacity))
+        pulse = halo.copy()
+        self.play(FadeIn(halo), FadeIn(card, scale=0.92), FadeIn(amount, scale=0.92),
+                  run_time=0.4)
+        self.play(FadeIn(pulse), run_time=0.35)
+        self.play(FadeOut(pulse), run_time=0.55)
         self.wait(1.7)
 
     def portfolio_growth(self, spec):
