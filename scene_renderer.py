@@ -123,6 +123,9 @@ class GeneratedScene(Scene):
         spec = json.loads(spec_file.read_text(encoding="utf-8"))
         if not config.transparent:
             self.camera.background_color = color("#0C1019")
+        if spec.get("template") == "awareness_strike":
+            self.awareness_strike()
+            return
         if spec.get("template") == "financial_stages":
             self.financial_stages()
             return
@@ -280,6 +283,20 @@ class GeneratedScene(Scene):
         self.play(arrow.animate.shift(UP * (midpoint - rows[3])), FadeOut(outline),
                   run_time=0.65, rate_func=smooth)
         self.wait(0.55)
+
+    def awareness_strike(self):
+        """One white word; a red line crosses it in exactly one second."""
+        word = Text("AWARENESS", font="Arial", font_size=100,
+                    weight="BOLD", color="#F7FAFD")
+        word.scale_to_fit_width(10.8).move_to(ORIGIN)
+        start = word.get_left() + LEFT * 0.35
+        end = word.get_right() + RIGHT * 0.35
+        glow = Line(start, end, color="#FF454B", stroke_width=27, stroke_opacity=0.22)
+        line = Line(start, end, color="#FF454B", stroke_width=13)
+        self.play(FadeIn(word), run_time=0.35)
+        self.wait(0.15)
+        self.play(Create(glow), Create(line), run_time=1.0, rate_func=linear)
+        self.wait(0.5)
 
     def portfolio_growth(self, spec):
         monthly = spec["monthly"]
