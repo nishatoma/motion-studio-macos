@@ -25,7 +25,7 @@ import wan_video
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.25.14"
+BUILD_ID = "2026.09.26.1"
 JOBS_DIR = Path.home() / "Movies" / "Nisha Motion Graphics"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -505,7 +505,8 @@ def generate_plan(prompt: str, model: str, planning_quality: str = "polished") -
 
 
 def render_job(job_id: str, prompt: str, model: str, preset: str,
-               existing_plan: dict[str, Any] | None = None, planning_quality: str = "polished") -> None:
+               existing_plan: dict[str, Any] | None = None, planning_quality: str = "polished",
+               transparent: bool = False) -> None:
     job_dir = JOBS_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
     log_path = job_dir / "motion-studio.log"
@@ -520,7 +521,7 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
                           else "Asking your local model to plan the animation…")
     try:
         with log_path.open("a", encoding="utf-8") as log:
-            log.write(f"Model: {model}\nPreset: {preset}\nPlanning quality: {planning_quality}\n")
+            log.write(f"Model: {model}\nPreset: {preset}\nPlanning quality: {planning_quality}\nTransparent: {transparent}\n")
         plan = existing_plan if existing_plan is not None else generate_plan(prompt, model, planning_quality)
         with log_path.open("a", encoding="utf-8") as log:
             log.write(f"Plan source: {plan.get('_source', 'existing scene' if existing_plan is not None else 'Ollama')}\n")
@@ -528,7 +529,7 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
         spec_path.write_text(json.dumps(plan, indent=2), encoding="utf-8")
         spec_path.chmod(0o600)
         job["status"] = "rendering"
-        job["message"] = f"Rendering {PRESETS[preset]['label']}…"
+        job["message"] = f"Rendering {PRESETS[preset]['label']}{' with alpha' if transparent else ''}…"
         preset_cfg = PRESETS[preset]
         env = os.environ.copy()
         env["MOTION_STUDIO_SPEC"] = str(spec_path)
@@ -543,6 +544,8 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
         # dimensions and frame rate from the environment when Manim imports it.
         command = [str(manim), "render", "--media_dir", str(job_dir / "media"),
                    "--output_file", "animation", str(ROOT / "scene_renderer.py"), "GeneratedScene"]
+        if transparent:
+            command.insert(2, "--transparent")
         with log_path.open("a", encoding="utf-8") as log:
             log.write("Manim command: " + " ".join(command) + "\n")
             log.write(f"Build: {BUILD_ID}\nProject root: {ROOT}\n")
@@ -550,40 +553,62 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
         process_output = "STDOUT\n" + proc.stdout + "\nSTDERR\n" + proc.stderr
         with log_path.open("a", encoding="utf-8") as log:
             log.write("\n" + process_output)
-        finished_movies = [path for path in (job_dir / "media").rglob("animation.mp4")
+        extension = "mov" if transparent else "mp4"
+        finished_movies = [path for path in (job_dir / "media").rglob(f"animation.{extension}")
                            if "partial_movie_files" not in path.parts]
         if proc.returncode != 0 or not finished_movies:
             raise RuntimeError("Manim render failed. Expand the error details below to see the full output.")
-        final_path = job_dir / "animation.mp4"
+        final_path = job_dir / f"animation.{extension}"
         finished_movie = max(finished_movies, key=lambda path: path.stat().st_mtime)
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
-            raise RuntimeError("FFmpeg is required for the glow finish. Run setup_mac.command and restart the dashboard.")
-        # Bloom only the brighter parts. Blur at quarter size so 4K renders
-        # retain a soft halo without paying the full-resolution blur cost.
-        glow_filter = (
-            "[0:v]format=gbrp,split[base][lights];"
-            "[lights]scale=iw/4:ih/4:flags=bilinear,"
-            "lutrgb=r='if(gte(val,80),val,0)':g='if(gte(val,80),val,0)':"
-            "b='if(gte(val,80),val,0)',gblur=sigma=6,"
-            "scale=iw*4:ih*4:flags=bilinear[halo];"
-            "[base][halo]blend=all_mode=screen:all_opacity=0.75,"
-            "format=yuv420p[v]"
-        )
-        command = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(finished_movie),
-                   "-filter_complex", glow_filter, "-map", "[v]", "-map", "0:a?",
-                   "-c:v", "libx264", "-crf", "18", "-preset", "veryfast" if preset == "preview" else "medium",
-                   "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", str(final_path)]
+            raise RuntimeError("FFmpeg is required for video export. Run setup_mac.command and restart the dashboard.")
+        if transparent:
+            # ProRes 4444 keeps the Manim alpha channel for Resolve. The
+            # opaque screen-blend glow filter below would discard that alpha.
+            command = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(finished_movie),
+                       "-map", "0:v:0", "-map", "0:a?", "-c:v", "prores_ks", "-profile:v", "4",
+                       "-pix_fmt", "yuva444p10le", "-alpha_bits", "16", "-c:a", "copy", str(final_path)]
+        else:
+            # Bloom only brighter parts at quarter size for the dark MP4.
+            glow_filter = (
+                "[0:v]format=gbrp,split[base][lights];"
+                "[lights]scale=iw/4:ih/4:flags=bilinear,"
+                "lutrgb=r='if(gte(val,80),val,0)':g='if(gte(val,80),val,0)':"
+                "b='if(gte(val,80),val,0)',gblur=sigma=6,"
+                "scale=iw*4:ih*4:flags=bilinear[halo];"
+                "[base][halo]blend=all_mode=screen:all_opacity=0.75,"
+                "format=yuv420p[v]"
+            )
+            command = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(finished_movie),
+                       "-filter_complex", glow_filter, "-map", "[v]", "-map", "0:a?",
+                       "-c:v", "libx264", "-crf", "18", "-preset", "veryfast" if preset == "preview" else "medium",
+                       "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", str(final_path)]
         with LOCK:
-            job["message"] = "Adding the cinematic glow finish…"
+            job["message"] = "Encoding transparent ProRes 4444…" if transparent else "Adding the cinematic glow finish…"
         with log_path.open("a", encoding="utf-8") as log:
-            log.write("Glow command: " + " ".join(command) + "\n")
+            log.write("Finish command: " + " ".join(command) + "\n")
         glow = subprocess.run(command, capture_output=True, text=True, timeout=1800)
         process_output += "\nFFMPEG STDOUT\n" + glow.stdout + "\nFFMPEG STDERR\n" + glow.stderr
         with log_path.open("a", encoding="utf-8") as log:
             log.write("\nFFmpeg output:\n" + glow.stdout + glow.stderr)
         if glow.returncode != 0 or not final_path.is_file() or final_path.stat().st_size == 0:
-            raise RuntimeError("The glow finish failed. Open the render log for FFmpeg details.")
+            raise RuntimeError("The video encoding failed. Open the render log for FFmpeg details.")
+        preview_path = job_dir / "preview.mp4"
+        if transparent:
+            # A small opaque preview plays in browsers that cannot decode
+            # ProRes. Only animation.mov is the alpha-bearing deliverable.
+            preview_command = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(final_path),
+                               "-f", "lavfi", "-i", "color=c=0x101820:s=1280x720:r=24",
+                               "-filter_complex", "[0:v]scale=1280:720:flags=bilinear,format=rgba[fg];"
+                               "[1:v][fg]overlay=shortest=1:format=auto,format=yuv420p[v]",
+                               "-map", "[v]", "-c:v", "libx264", "-crf", "23", "-preset", "veryfast",
+                               "-movflags", "+faststart", str(preview_path)]
+            preview = subprocess.run(preview_command, capture_output=True, text=True, timeout=1800)
+            with log_path.open("a", encoding="utf-8") as log:
+                log.write("Preview command: " + " ".join(preview_command) + "\n" + preview.stderr + "\n")
+            if preview.returncode != 0 or not preview_path.is_file() or preview_path.stat().st_size == 0:
+                raise RuntimeError("The browser preview failed. Open the render log for FFmpeg details.")
         with log_path.open("a", encoding="utf-8") as log:
             log.write(f"\nFinished movie: {final_path}\n")
         with LOCK:
@@ -596,7 +621,10 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
             else:
                 duration = sum(b["duration"] + (0.35 if b.get("clear_before") else 0)
                                for b in plan["beats"]) + 0.4
-            job.update(status="complete", message=message, video=f"/files/{job_id}/animation.mp4",
+            job.update(status="complete", message=message,
+                        video=f"/files/{job_id}/{'preview.mp4' if transparent else 'animation.mp4'}",
+                        download=f"/files/{job_id}/animation.{extension}", format=extension,
+                        transparent=transparent,
                         filename=str(final_path), plan=plan, duration=duration,
                         details=process_output, log_url=f"/logs/{job_id}", preset=preset,
                         quality=PRESETS[preset]["label"],
@@ -713,6 +741,15 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, status: int, value: Any) -> None:
         self._send(status, json.dumps(value).encode("utf-8"))
 
+    def _send_video(self, file_path: Path) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "video/quicktime" if file_path.suffix == ".mov" else "video/mp4")
+        self.send_header("Content-Length", str(file_path.stat().st_size))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        with file_path.open("rb") as video:
+            shutil.copyfileobj(video, self.wfile, length=1024 * 1024)
+
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
         if path == "/" or path == "/index.html":
@@ -729,12 +766,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200 if job else 404, job or {"error": "Job not found"})
         elif path.startswith("/files/"):
             parts = path.split("/")
-            if len(parts) != 4 or not re.fullmatch(r"[a-f0-9]{12}", parts[2]) or parts[3] != "animation.mp4":
+            if len(parts) != 4 or not re.fullmatch(r"[a-f0-9]{12}", parts[2]) or parts[3] not in {"animation.mp4", "animation.mov", "preview.mp4"}:
                 return self._json(404, {"error": "File not found"})
-            file_path = JOBS_DIR / parts[2] / "animation.mp4"
+            file_path = JOBS_DIR / parts[2] / parts[3]
             if not file_path.exists():
                 return self._json(404, {"error": "File not found"})
-            self._send(200, file_path.read_bytes(), "video/mp4")
+            self._send_video(file_path)
         elif path.startswith("/logs/"):
             job_id = path.rsplit("/", 1)[-1]
             if not re.fullmatch(r"[a-f0-9]{12}", job_id):
@@ -782,6 +819,9 @@ class Handler(BaseHTTPRequestHandler):
             preset = str(body.get("preset", "preview"))
             if preset not in PRESETS:
                 return self._json(400, {"error": "Choose a valid render preset."})
+            transparent = body.get("transparent", False)
+            if not isinstance(transparent, bool):
+                return self._json(400, {"error": "Choose a valid background option."})
             if rerender_match:
                 with LOCK:
                     source = JOBS.get(rerender_match.group(1))
@@ -791,7 +831,7 @@ class Handler(BaseHTTPRequestHandler):
                     job_id = uuid.uuid4().hex[:12]
                     JOBS[job_id] = {"id": job_id, "status": "queued", "message": "Queued…", "created": time.time()}
                 threading.Thread(target=render_job,
-                                 args=(job_id, "", "same scene plan", preset, plan), daemon=True).start()
+                                 args=(job_id, "", "same scene plan", preset, plan, "polished", transparent), daemon=True).start()
                 return self._json(202, {"id": job_id})
             prompt = str(body.get("prompt", "")).strip()
             model = str(body.get("model", "")).strip()
@@ -806,7 +846,7 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 JOBS[job_id] = {"id": job_id, "status": "queued", "message": "Queued…", "created": time.time()}
             threading.Thread(target=render_job,
-                             args=(job_id, prompt, model, preset, None, planning_quality), daemon=True).start()
+                             args=(job_id, prompt, model, preset, None, planning_quality, transparent), daemon=True).start()
             self._json(202, {"id": job_id})
         except (ValueError, json.JSONDecodeError) as exc:
             self._json(400, {"error": str(exc)})

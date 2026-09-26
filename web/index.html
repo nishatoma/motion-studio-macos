@@ -10,6 +10,7 @@
     @media(max-width:800px){.layout{grid-template-columns:1fr}.top{align-items:flex-start}.steps{grid-template-columns:1fr}.preview{min-height:220px}}
     .linkbtn[hidden],.log-panel[hidden],.button[hidden],.mode-fields[hidden],.reference-preview[hidden]{display:none}.log-tools{display:flex;gap:9px;flex-wrap:wrap;margin-top:10px}.log-panel{margin-top:9px;border:1px solid #294354;border-radius:10px;padding:10px 12px;background:#07131f}.log-panel pre{max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;color:#d3e3ea;font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;margin:0}.linkbtn[aria-expanded="true"]{background:#13313c}.linkbtn.err-link{color:#ffb1a6;border-color:#8e4747}button.linkbtn{background:transparent;font:inherit;cursor:pointer}.button.secondary{background:#153642;color:var(--aqua);border:1px solid #356774;margin-top:9px}
     .mode-switch{display:flex;gap:8px;margin:0 0 18px}.mode-switch button{flex:1;background:#0a1722;color:var(--muted);border:1px solid var(--line);border-radius:10px;padding:10px;cursor:pointer;font:inherit;font-weight:700}.mode-switch button[aria-pressed="true"]{color:#08242b;background:var(--aqua);border-color:var(--aqua)}.drop-zone{border:2px dashed #386274;border-radius:14px;padding:22px;text-align:center;cursor:pointer;color:var(--muted);background:#091925}.drop-zone.dragging,.drop-zone:focus{border-color:var(--aqua);box-shadow:0 0 25px #55ede333;outline:none}.drop-zone strong{display:block;color:var(--text);font-size:15px}.reference-preview{width:100%;max-height:275px;object-fit:contain;margin-top:12px;border-radius:9px;background:#050b11}.small-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}input[type=file]{max-width:100%;color:var(--muted)}.mode-fields textarea{min-height:116px}
+    .option{display:flex;align-items:flex-start;gap:10px;margin-top:16px;color:var(--text);font-size:14px;cursor:pointer}.option input{accent-color:var(--aqua);width:18px;height:18px;flex:none;margin:2px 0 0}.option-hint{margin:4px 0 0 28px}
   </style>
 </head>
 <body><main>
@@ -39,9 +40,11 @@
       <textarea id="prompt">Show how a pay raise can disappear into lifestyle inflation. Animate extra income flowing into bigger bills and impulse spending, then compare that path with investing the extra money.</textarea>
       <div class="row"><div><label class="label" for="model">Local model</label><select id="model"><option>Looking for Ollama…</option></select></div><div><label class="label" for="preset">Render quality</label><select id="preset"><option value="preview">Preview · 720p / 24 fps</option><option value="1080p">YouTube · 1080p / 24 fps</option><option value="4k24">YouTube 4K · 24 fps</option><option value="4k60">4K · 60 fps</option></select></div></div>
       <label class="label" for="planningQuality">Planning quality</label><select id="planningQuality"><option value="polished">Polished · visual storyboard / adaptive model budget</option><option value="fast">Fast · one experimental model plan</option></select>
+      <label class="option" for="transparent"><input id="transparent" type="checkbox">Transparent background for Resolve (.mov)</label>
+      <p class="hint option-hint">Exports only the Manim graphics with alpha as ProRes 4444. The browser preview uses a dark backing; the downloaded MOV is transparent. The dark MP4 has a separate glow finish.</p>
       <button id="render" class="button">Generate animation</button>
       <button id="rerender" class="button secondary" hidden>Render same scene at selected quality</button>
-      <p class="hint">All renders use the same dark cinematic look: vivid aqua and amber accents with a soft glow around bright elements. Polished builds a directed graph for supported investment prompts; other ideas become visual storyboards. Preview first, then render the same scene at 4K.</p>
+      <p class="hint">Data graphics use vivid aqua and amber accents. Choose a dark MP4 or a transparent MOV overlay. Polished builds a directed graph for supported investment prompts; other ideas become visual storyboards. Preview first, then render the same scene at 4K.</p>
       </div>
       <div id="status" class="status">Checking Ollama and Manim…</div>
       <div class="log-tools"><button id="logToggle" class="linkbtn" type="button" aria-expanded="false">Show latest render log</button><button id="logCopy" class="linkbtn" type="button" hidden>Copy full log</button><a id="logDownload" class="linkbtn" hidden download="motion-studio.log">Download full log</a></div>
@@ -83,7 +86,8 @@ async function poll(id){
     if(j.status==="complete"){
       const preview=$("preview");preview.innerHTML="";
       const video=document.createElement("video");video.controls=true;video.src=j.video;video.autoplay=true;video.playsInline=true;preview.append(video);
-      $("resultActions").innerHTML=`<a class="linkbtn" href="${j.video}" download="motion-studio-animation.mp4">Download MP4</a><span class="hint">${j.quality}${typeof j.duration==="number"?" · "+j.duration.toFixed(1)+" sec":""}</span>`;
+      const format=j.format==="mov"?"MOV · alpha":"MP4";
+      $("resultActions").innerHTML=`<a class="linkbtn" href="${j.download||j.video}" download="motion-studio-animation.${j.format==="mov"?"mov":"mp4"}">Download ${format}</a><span class="hint">${j.quality}${typeof j.duration==="number"?" · "+j.duration.toFixed(1)+" sec":""}</span>`;
       latestCompletedJobId=j.kind==="abstract"?null:id;$("rerender").hidden=j.kind==="abstract";await showDetails(j);break;
     }
     if(j.status==="error"){
@@ -117,11 +121,11 @@ $("abstractRender").addEventListener("click",async()=>{
 $("render").addEventListener("click",()=>{
   const prompt=$("prompt").value.trim();if(!prompt){showStatus("Describe the animation first.","err");return}
   latestCompletedJobId=null;$("rerender").hidden=true;
-  runRender("/api/jobs",{prompt,model:$("model").value,preset:$("preset").value,planning_quality:$("planningQuality").value});
+  runRender("/api/jobs",{prompt,model:$("model").value,preset:$("preset").value,planning_quality:$("planningQuality").value,transparent:$("transparent").checked});
 });
 $("rerender").addEventListener("click",()=>{
   if(!latestCompletedJobId)return;
-  runRender(`/api/jobs/${latestCompletedJobId}/rerender`,{preset:$("preset").value});
+  runRender(`/api/jobs/${latestCompletedJobId}/rerender`,{preset:$("preset").value,transparent:$("transparent").checked});
 });
 updateVideoBackend();refreshHealth();
 </script></body></html>
