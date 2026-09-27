@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import subprocess
 import time
 import urllib.parse
@@ -22,6 +23,8 @@ MAX_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_WORKFLOW_BYTES = 2 * 1024 * 1024
 IMAGE_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
 VIDEO_SUFFIXES = {".mp4", ".webm", ".mov"}
+WORKFLOW_FILE = (Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "MotionStudio" /
+                 "comfy_minimax_workflow.json")
 
 
 def image_extension(data: bytes) -> str:
@@ -40,9 +43,12 @@ def fill_workflow(raw: Any, prompt: str, image_name: str) -> dict[str, Any]:
         for node in raw.values()
     ):
         raise ValueError("Export a ComfyUI workflow in API format, then select its JSON file.")
+    # The older placeholder workflow remains supported for other video models.
     serialized = json.dumps(raw)
     if "{{PROMPT}}" not in serialized or "{{IMAGE}}" not in serialized:
-        raise ValueError("The API workflow needs {{PROMPT}} and {{IMAGE}} in its prompt and LoadImage fields.")
+        if any(node["class_type"] == "MiniMaxH3ImageToVideo" for node in raw.values()):
+            return fill_minimax_workflow(raw, prompt, image_name)
+        raise ValueError("Other ComfyUI workflows need {{PROMPT}} and {{IMAGE}} placeholders.")
 
     def replace(value: Any) -> Any:
         if isinstance(value, str):
@@ -54,6 +60,96 @@ def fill_workflow(raw: Any, prompt: str, image_name: str) -> dict[str, Any]:
         return value
 
     return replace(raw)
+
+
+def _image_loaders(graph: dict[str, Any], link: Any, visited: set[str] | None = None) -> set[str]:
+    """Follow a first-frame image link upstream through resize/crop nodes."""
+    if not isinstance(link, list) or not link or not isinstance(link[0], (str, int)):
+        return set()
+    node_id = str(link[0])
+    visited = set() if visited is None else visited
+    if node_id in visited or node_id not in graph:
+        return set()
+    visited.add(node_id)
+    node = graph[node_id]
+    if node.get("class_type") == "LoadImage":
+        return {node_id}
+    result: set[str] = set()
+    for value in node.get("inputs", {}).values():
+        result.update(_image_loaders(graph, value, visited))
+    return result
+
+
+def fill_minimax_workflow(raw: Any, prompt: str, image_name: str) -> dict[str, Any]:
+    """Bind a native H3 I2V API graph without editing its model settings."""
+    if not isinstance(raw, dict) or not raw or not all(
+        isinstance(node, dict) and isinstance(node.get("class_type"), str)
+        and isinstance(node.get("inputs"), dict) for node in raw.values()
+    ):
+        raise ValueError("Use a MiniMax H3 image-to-video API workflow.")
+    targets = [(node_id, node) for node_id, node in raw.items()
+               if node["class_type"] == "MiniMaxH3ImageToVideo"]
+    if len(targets) != 1:
+        raise ValueError("Use a workflow with exactly one native MiniMaxH3ImageToVideo node.")
+    _id, target = targets[0]
+    inputs = target["inputs"]
+    if not isinstance(inputs.get("prompt"), str):
+        raise ValueError("The MiniMax H3 prompt must be a text field in the API workflow.")
+    loaders = _image_loaders(raw, inputs.get("first_frame"))
+    if len(loaders) != 1:
+        raise ValueError("Connect one LoadImage node to MiniMax H3's first_frame input in ComfyUI.")
+    result = json.loads(json.dumps(raw))
+    result[_id]["inputs"]["prompt"] = prompt
+    result[next(iter(loaders))]["inputs"]["image"] = image_name
+    return result
+
+
+def _valid_minimax_history(entry: Any) -> dict[str, Any] | None:
+    if not isinstance(entry, dict) or entry.get("status", {}).get("status_str") != "success":
+        return None
+    stored = entry.get("prompt")
+    if not isinstance(stored, list) or len(stored) < 2:
+        return None
+    graph = stored[1]
+    try:
+        fill_minimax_workflow(graph, "check", "check.png")
+    except ValueError:
+        return None
+    if len(json.dumps(graph).encode("utf-8")) > MAX_WORKFLOW_BYTES:
+        return None
+    return graph
+
+
+def latest_minimax_workflow() -> dict[str, Any]:
+    """Remember the most recent successful local H3 I2V graph."""
+    history = _json("/history?max_items=20", timeout=15)
+    if not isinstance(history, dict):
+        raise ValueError("ComfyUI did not return its recent workflow history.")
+    # The first value in each saved prompt is its queue number.
+    def queue_number(entry: Any) -> int:
+        stored = entry.get("prompt") if isinstance(entry, dict) else None
+        return stored[0] if isinstance(stored, list) and stored and isinstance(stored[0], int) else -1
+
+    for entry in sorted(history.values(), key=queue_number, reverse=True):
+        graph = _valid_minimax_history(entry)
+        if graph is not None:
+            WORKFLOW_FILE.parent.mkdir(parents=True, exist_ok=True)
+            pending = WORKFLOW_FILE.with_suffix(".tmp")
+            pending.write_text(json.dumps(graph), encoding="utf-8")
+            pending.replace(WORKFLOW_FILE)
+            return graph
+    raise ValueError("Run MiniMax H3 Image to Video successfully in this local ComfyUI first, then retry.")
+
+
+def saved_minimax_workflow() -> dict[str, Any]:
+    if WORKFLOW_FILE.is_file():
+        try:
+            graph = json.loads(WORKFLOW_FILE.read_text(encoding="utf-8"))
+            fill_minimax_workflow(graph, "check", "check.png")
+            return graph
+        except (OSError, ValueError):
+            pass
+    return latest_minimax_workflow()
 
 
 def _json(path: str, payload: dict[str, Any] | None = None, timeout: int = 15) -> Any:

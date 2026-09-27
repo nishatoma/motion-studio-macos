@@ -29,7 +29,7 @@ import windows_support
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.27.1"
+BUILD_ID = "2026.09.27.2"
 JOBS_DIR = windows_support.output_dir()
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -814,8 +814,6 @@ def parse_abstract_request(content_type: str, body: bytes) -> tuple[str, bytes, 
         except (ValueError, UnicodeDecodeError) as exc:
             raise ValueError("The workflow file is not valid JSON.") from exc
         abstract_video.fill_workflow(workflow, prompt, "reference.png")
-    if backend == "comfy" and workflow is None:
-        raise ValueError("Choose a working ComfyUI API workflow JSON for Windows video generation.")
     return prompt, image, workflow, preset, backend
 
 
@@ -894,6 +892,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self._local_host():
             return self._json(403, {"error": "Open Motion Studio at 127.0.0.1."})
+        if self.path == "/api/comfy/latest":
+            origin = self.headers.get("Origin")
+            if origin and origin != "http://" + self.headers["Host"]:
+                return self._json(403, {"error": "Open the local Motion Studio dashboard."})
+            try:
+                abstract_video.latest_minimax_workflow()
+                return self._json(200, {"message": "Using your latest successful MiniMax H3 workflow."})
+            except (OSError, ValueError, urllib.error.URLError) as exc:
+                return self._json(400, {"error": str(exc)})
         if self.path == "/api/windows/setup":
             if platform.system() != "Windows":
                 return self._json(404, {"error": "Windows setup is only available on Windows."})
@@ -915,6 +922,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(413, {"error": "Upload must be under 15 MB."})
                 prompt, image, workflow, preset, backend = parse_abstract_request(
                     self.headers.get("Content-Type", ""), self.rfile.read(length))
+                if backend == "comfy" and workflow is None:
+                    if not abstract_video.is_ready():
+                        return self._json(503, {"error": "Start ComfyUI at 127.0.0.1:8188 first."})
+                    workflow = abstract_video.saved_minimax_workflow()
                 if workflow is not None and not abstract_video.is_ready():
                     return self._json(503, {"error": "Start local ComfyUI on 127.0.0.1:8188 for the selected workflow."})
                 if workflow is None and backend in {"wan", "ltx"} and platform.system() != "Darwin":

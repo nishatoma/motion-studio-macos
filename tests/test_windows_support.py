@@ -30,11 +30,12 @@ class WindowsSupportTest(unittest.TestCase):
                 link.touch()
                 self.assertEqual(windows_support.ffmpeg_binary(), str(link))
 
-    def test_windows_comfy_requires_workflow_and_accepts_one(self):
+    def test_windows_comfy_auto_discovers_workflow_or_accepts_custom_one(self):
         fields = {"prompt": b"three streams", "image": IMAGE, "backend": b"comfy", "preset": b"workflow"}
         boundary, body = multipart(fields)
-        with self.assertRaisesRegex(ValueError, "ComfyUI API workflow"):
-            app.parse_abstract_request(f"multipart/form-data; boundary={boundary}", body)
+        _, _, workflow, preset, backend = app.parse_abstract_request(
+            f"multipart/form-data; boundary={boundary}", body)
+        self.assertEqual((workflow, preset, backend), (None, "workflow", "comfy"))
         fields["workflow"] = json.dumps(WORKFLOW).encode()
         boundary, body = multipart(fields)
         _, _, workflow, preset, backend = app.parse_abstract_request(f"multipart/form-data; boundary={boundary}", body)
