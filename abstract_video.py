@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import mimetypes
-import shutil
 import subprocess
 import time
 import urllib.parse
@@ -15,6 +14,8 @@ import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any, Callable
+
+import windows_support
 
 COMFYUI_URL = "http://127.0.0.1:8188"
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
@@ -136,7 +137,7 @@ def run(prompt: str, image_data: bytes, workflow: dict[str, Any], output: Path,
             if source.suffix == ".mp4":
                 source.replace(output)
             else:
-                ffmpeg = shutil.which("ffmpeg")
+                ffmpeg = windows_support.ffmpeg_binary()
                 if not ffmpeg:
                     raise RuntimeError("FFmpeg is needed to convert this video for Resolve.")
                 command = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(source),

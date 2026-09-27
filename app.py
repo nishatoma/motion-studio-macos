@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Local-only motion graphics dashboard for macOS."""
+"""Local-only motion graphics dashboard for macOS and Windows."""
 from __future__ import annotations
 
 import json
+import platform
+import secrets
 from email import policy
 from email.parser import BytesParser
 import os
@@ -15,6 +17,7 @@ import traceback
 import urllib.error
 import urllib.request
 import uuid
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -22,16 +25,42 @@ from typing import Any
 import abstract_video
 import local_video
 import wan_video
+import windows_support
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.26.4"
-JOBS_DIR = Path.home() / "Movies" / "Nisha Motion Graphics"
+BUILD_ID = "2026.09.27.1"
+JOBS_DIR = windows_support.output_dir()
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
 MAX_PROMPT = 5000
 JOBS: dict[str, dict[str, Any]] = {}
 LOCK = threading.Lock()
+SETUP_TOKEN = secrets.token_urlsafe(32)
+SETUP_LOCK = threading.Lock()
+SETUP: dict[str, Any] = {"status": "idle", "message": "Windows setup has not been started.", "log": ""}
+
+
+def run_windows_setup() -> None:
+    """Run only our checked-in script after an authenticated local UI click."""
+    try:
+        process = subprocess.Popen(windows_support.setup_command(ROOT), cwd=ROOT,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   text=True, encoding="utf-8", errors="replace", bufsize=1)
+        assert process.stdout is not None
+        for line in process.stdout:
+            with SETUP_LOCK:
+                SETUP["message"] = line.strip() or SETUP["message"]
+                SETUP["log"] = (SETUP["log"] + line)[-24000:]
+        code = process.wait()
+        with SETUP_LOCK:
+            SETUP["status"] = "complete" if code == 0 else "error"
+            SETUP["message"] = ("Windows setup finished. Refresh readiness below."
+                                if code == 0 else f"Windows setup exited with code {code}. See the setup log.")
+    except Exception:
+        with SETUP_LOCK:
+            SETUP.update(status="error", message="Windows setup failed. See the setup log.",
+                         log=(SETUP["log"] + "\n" + traceback.format_exc())[-24000:])
 
 PRESETS = {
     "preview": {"width": 1280, "height": 720, "fps": 24, "label": "Preview · 720p / 24 fps"},
@@ -593,9 +622,9 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
         env["MOTION_STUDIO_WIDTH"] = str(preset_cfg["width"])
         env["MOTION_STUDIO_HEIGHT"] = str(preset_cfg["height"])
         env["MOTION_STUDIO_FPS"] = str(preset_cfg["fps"])
-        manim = ROOT / ".venv" / "bin" / "manim"
+        manim = windows_support.manim_binary(ROOT)
         if not manim.exists():
-            raise RuntimeError("Manim is not installed yet. Run setup_mac.command and restart the dashboard.")
+            raise RuntimeError("Manim is not installed yet. Use the Windows setup button or run setup_mac.command.")
         # Avoid Manim 0.19's brittle --resolution parser. The scene applies
         # dimensions and frame rate from the environment when Manim imports it.
         command = [str(manim), "render", "--media_dir", str(job_dir / "media"),
@@ -616,9 +645,9 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
             raise RuntimeError("Manim render failed. Expand the error details below to see the full output.")
         final_path = job_dir / f"animation.{extension}"
         finished_movie = max(finished_movies, key=lambda path: path.stat().st_mtime)
-        ffmpeg = shutil.which("ffmpeg")
+        ffmpeg = windows_support.ffmpeg_binary()
         if not ffmpeg:
-            raise RuntimeError("FFmpeg is required for video export. Run setup_mac.command and restart the dashboard.")
+            raise RuntimeError("FFmpeg is required for video export. Use the Windows setup button or run setup_mac.command.")
         if transparent:
             # ProRes 4444 keeps the Manim alpha channel for Resolve. The
             # opaque screen-blend glow filter below would discard that alpha.
@@ -770,9 +799,11 @@ def parse_abstract_request(content_type: str, body: bytes) -> tuple[str, bytes, 
     abstract_video.image_extension(image)
     preset = fields.get("preset", b"preview").decode("utf-8").strip()
     backend = fields.get("backend", b"ltx").decode("utf-8").strip()
-    if backend not in {"ltx", "wan"}:
+    if backend not in {"ltx", "wan", "comfy"}:
         raise ValueError("Choose a valid local video backend.")
-    if preset not in (wan_video.PRESETS if backend == "wan" else {"preview", "detail", "compatibility"}):
+    allowed_presets = (wan_video.PRESETS if backend == "wan" else
+                       {"workflow"} if backend == "comfy" else {"preview", "detail", "compatibility"})
+    if preset not in allowed_presets:
         raise ValueError("Choose a valid local video preset.")
     workflow = None
     if raw_workflow:
@@ -783,6 +814,8 @@ def parse_abstract_request(content_type: str, body: bytes) -> tuple[str, bytes, 
         except (ValueError, UnicodeDecodeError) as exc:
             raise ValueError("The workflow file is not valid JSON.") from exc
         abstract_video.fill_workflow(workflow, prompt, "reference.png")
+    if backend == "comfy" and workflow is None:
+        raise ValueError("Choose a working ComfyUI API workflow JSON for Windows video generation.")
     return prompt, image, workflow, preset, backend
 
 
@@ -803,6 +836,10 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, status: int, value: Any) -> None:
         self._send(status, json.dumps(value).encode("utf-8"))
 
+    def _local_host(self) -> bool:
+        port = self.server.server_address[1]
+        return self.headers.get("Host", "") in {f"127.0.0.1:{port}", f"localhost:{port}"}
+
     def _send_video(self, file_path: Path) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "video/quicktime" if file_path.suffix == ".mov" else "video/mp4")
@@ -813,14 +850,23 @@ class Handler(BaseHTTPRequestHandler):
             shutil.copyfileobj(video, self.wfile, length=1024 * 1024)
 
     def do_GET(self) -> None:
+        if not self._local_host():
+            return self._json(403, {"error": "Open Motion Studio at 127.0.0.1."})
         path = self.path.split("?", 1)[0]
         if path == "/" or path == "/index.html":
             self._send(200, (WEB / "index.html").read_bytes(), "text/html; charset=utf-8")
         elif path == "/api/health":
-            self._json(200, {"models": ollama_models(), "manim": (ROOT / ".venv" / "bin" / "manim").exists(),
+            self._json(200, {"models": ollama_models(), "manim": windows_support.manim_binary(ROOT).exists(),
+                             "ffmpeg": bool(windows_support.ffmpeg_binary()),
                              "comfyui": abstract_video.is_ready(), "ltx": local_video.is_ready(), "wan": wan_video.is_ready(),
+                             "platform": platform.system(), "setup_token": SETUP_TOKEN if platform.system() == "Windows" else None,
                              "output": str(JOBS_DIR), "ollama_url": OLLAMA_URL,
                              "build": BUILD_ID, "project_root": str(ROOT), "app_file": str(Path(__file__).resolve())})
+        elif path == "/api/windows/setup":
+            if platform.system() != "Windows":
+                return self._json(404, {"error": "Windows setup is only available on Windows."})
+            with SETUP_LOCK:
+                self._json(200, dict(SETUP))
         elif path.startswith("/api/jobs/"):
             job_id = path.rsplit("/", 1)[-1]
             with LOCK:
@@ -846,6 +892,22 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "Not found"})
 
     def do_POST(self) -> None:
+        if not self._local_host():
+            return self._json(403, {"error": "Open Motion Studio at 127.0.0.1."})
+        if self.path == "/api/windows/setup":
+            if platform.system() != "Windows":
+                return self._json(404, {"error": "Windows setup is only available on Windows."})
+            origin = self.headers.get("Origin")
+            if origin and origin != "http://" + self.headers["Host"]:
+                return self._json(403, {"error": "Windows setup requires a local page."})
+            if not secrets.compare_digest(self.headers.get("X-Motion-Studio-Setup", ""), SETUP_TOKEN):
+                return self._json(403, {"error": "Refresh the local dashboard before starting setup."})
+            with SETUP_LOCK:
+                if SETUP["status"] == "running":
+                    return self._json(409, {"error": "Windows setup is already running."})
+                SETUP.update(status="running", message="Starting Windows setup…", log="")
+            threading.Thread(target=run_windows_setup, daemon=True).start()
+            return self._json(202, {"status": "running"})
         if self.path == "/api/abstract/jobs":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -855,6 +917,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.headers.get("Content-Type", ""), self.rfile.read(length))
                 if workflow is not None and not abstract_video.is_ready():
                     return self._json(503, {"error": "Start local ComfyUI on 127.0.0.1:8188 for the selected workflow."})
+                if workflow is None and backend in {"wan", "ltx"} and platform.system() != "Darwin":
+                    return self._json(400, {"error": "The Wan MLX and LTX backends require an Apple silicon Mac. Use a local ComfyUI workflow on Windows."})
                 if workflow is None and backend == "wan" and not wan_video.is_ready():
                     return self._json(503, {"error": "Install Wan MLX using setup_wan_mlx_mac.command, then restart Motion Studio."})
                 if workflow is None and backend == "ltx" and not local_video.is_ready():
@@ -920,12 +984,15 @@ def main() -> None:
         server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     except OSError as exc:
         if getattr(exc, "errno", None) in {48, 98, 10048}:
-            raise SystemExit(f"Port {PORT} is already in use. Stop the older Motion Studio window with Control-C, then run start.command again.") from exc
+            launcher = "start_windows.bat" if platform.system() == "Windows" else "start.command"
+            raise SystemExit(f"Port {PORT} is already in use. Stop the older Motion Studio window with Control-C, then run {launcher} again.") from exc
         raise
     print(f"Motion Studio build {BUILD_ID} is running at http://127.0.0.1:{PORT}")
     print(f"Loaded app.py: {Path(__file__).resolve()}")
     print(f"Loaded web UI: {(WEB / 'index.html').resolve()}")
     print(f"Renders will be saved to: {JOBS_DIR}")
+    if os.environ.get("MOTION_STUDIO_OPEN_BROWSER") == "1":
+        threading.Timer(0.8, lambda: webbrowser.open(f"http://127.0.0.1:{PORT}")).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -1,8 +1,8 @@
-# Motion Studio for macOS
+# Motion Studio for macOS and Windows
 
-A local browser dashboard for short video assets for DaVinci Resolve. **Abstract video** animates a first frame directly on Apple silicon with Wan 2.2 TI2V 5B through MLX-Video or LTX-Video 2B; a ComfyUI workflow remains optional. **Data graphics** retains the Ollama and Manim pipeline for precise charts and labeled diagrams. Model output is never executed as Python.
+A local browser dashboard for short video assets for DaVinci Resolve. **Abstract video** uses Wan MLX or LTX on Apple silicon; on Windows it uses a local ComfyUI API workflow and an NVIDIA GPU. **Data graphics** uses Ollama and Manim for precise charts and labeled diagrams on both systems. Model output is never executed as Python.
 
-## Requirements
+## Requirements for macOS
 
 - macOS 12 or later (Apple silicon or Intel)
 - Homebrew
@@ -11,11 +11,22 @@ A local browser dashboard for short video assets for DaVinci Resolve. **Abstract
 
 Manim rendering runs locally. An Apple silicon Mac is not required; slower Macs can use the 720p preview preset.
 
+## Windows setup (RTX 3060 Ti / 64 GB RAM)
+
+1. On Windows 10/11, double-click `start_windows.bat`. It uses Python 3.11 if already installed, or installs it with WinGet. You need Microsoft's **App Installer / WinGet** and an internet connection for the first setup. The local dashboard opens at <http://127.0.0.1:8765>.
+2. Click **Set up this Windows PC** in the dashboard. This explicitly installs/checks Manim 0.19 in the project's private `.venv`, FFmpeg, Ollama, and ComfyUI Desktop; it also pulls `qwen2.5-coder:3b`. The on-screen setup log shows progress and errors. No model weights for image-to-video are installed automatically.
+3. For **Data graphics**, select the small Ollama model and render a 720p preview. After approving the motion, rerender the same scene at 1080p or 4K. The transparent ProRes 4444 MOV option also works through FFmpeg on Windows.
+4. For **Abstract video**, open ComfyUI Desktop, finish its first-run NVIDIA setup, and install a video model that fits your **8 GB GPU VRAM**. Run a short low-resolution image-to-video test in ComfyUI first. Export that working workflow in **API JSON** format, put `{{PROMPT}}` in its positive prompt and `{{IMAGE}}` in its LoadImage filename, and include an MP4/WebM/MOV save node. Select the workflow in Motion Studio, add a first frame, and click Generate. ComfyUI must be running locally at `127.0.0.1:8188`.
+
+The 64 GB of system RAM helps with large assets but does not expand the 3060 Ti's 8 GB of VRAM. Unlike the Apple-silicon Wan/LTX presets, the Windows video resolution, model, duration, and compute time are set by your working ComfyUI workflow. The Windows setup button installs ComfyUI Desktop, **not** a particular video model or workflow. 4K is supported for Manim data-graphics delivery; native 4K diffusion video is not promised on this card. Windows renders go to `Videos\Nisha Motion Graphics` under your user profile.
+
+If your security policy blocks WinGet installs, run `setup_windows.ps1` yourself after allowing the installers or ask your administrator. Setup is rerunnable and avoids reinstalling already present WinGet apps. The dashboard is bound to localhost; installing software is only triggered by a click on the local Windows page.
+
 ## Visual style
 
 Data graphics use warm amber focal points, vivid aqua supporting lines, and restrained coral/violet accents. The default dark MP4 includes a deep charcoal background and an FFmpeg glow finish. The transparent MOV contains only the Manim graphics, without that glow pass. Preview at 720p while adjusting timing and composition.
 
-## Setup
+## macOS setup
 
 1. Install Ollama for macOS from [ollama.com/download](https://ollama.com/download) and open it.
 2. In Terminal, download a small model. For example:
@@ -112,16 +123,19 @@ The directed graph includes a small face-shaped marker placeholder. For an endin
 
 The Manim storyboard supports seven reusable visual relationships: bold statements, comparisons, flows, timelines, cycles, stacked layers, and networks. It cannot draw arbitrary cinematic imagery from a sentence; use Abstract video for that. Fast mode retains the older shapes and graph vocabulary. Transparent export applies to **Data graphics**; image-to-video backends still export opaque MP4. Direct Resolve project integration and free-form custom Manim code are not included.
 
-The server binds to `127.0.0.1` only. Ollama and Manim communicate locally. The app does not upload prompts or renders to a hosted service.
+The server binds to `127.0.0.1` only. Ollama and Manim communicate locally; Windows ComfyUI also uses localhost. The app does not upload prompts or renders to a hosted service.
 
 ## Troubleshooting
 
 - **Ollama offline:** open Ollama, then refresh the dashboard.
+- **Windows setup error:** expand the on-screen setup log. WinGet may require approval or a restart to expose an executable to a running app. Retry the button after fixing the reported step. If Python was just installed, reopen `start_windows.bat`.
+- **Windows video not ready:** open ComfyUI Desktop and complete its NVIDIA setup. A workflow and model tested inside ComfyUI are still required; installing the desktop app alone does not create video.
+- **3060 Ti out of VRAM:** lower the ComfyUI workflow's native resolution, frame count, or model size before retrying. 64 GB system RAM is not a replacement for GPU VRAM.
 - **Large model stalls:** run `ollama ps` to see what is loaded. Use `ollama stop MODEL_NAME` for an unused model, or select `qwen2.5-coder:14b`. The storyboard planner limits output and disables thinking where supported; large models still take longer to load than smaller ones.
 - **No model listed:** run `ollama pull qwen2.5-coder:3b`, wait for completion, and refresh.
-- **Manim setup error:** rerun `setup_mac.command`; if Homebrew reports a missing dependency, install it and rerun the script.
-- **Render takes too long:** use Preview (720p/24 fps); 4K rendering time depends on the Mac and scene complexity.
-- **Render error:** use **Show latest render log** beneath the status. On failure, the details open automatically. **Copy full log** copies the complete log to your clipboard; **Download full log** saves it as a file. A copy also stays under Movies → Nisha Motion Graphics.
-- **Old UI/error persists:** stop the running dashboard with Control-C in its Terminal window, run `git pull origin main` from this project folder, relaunch `start.command`, then hard-refresh the browser with Command-Shift-R. Confirm the header says **BUILD 2026.09.25.12**. If the Terminal says port 8765 is already in use, an older dashboard is still running; close its Terminal window with Control-C first.
+- **Manim setup error:** on Windows, retry the setup button and read its log; on macOS, rerun `setup_mac.command`.
+- **Render takes too long:** use Preview (720p/24 fps); 4K Manim render time depends on the computer and scene complexity.
+- **Render error:** use **Show latest render log** beneath the status. On failure, the details open automatically. **Copy full log** copies the complete log to your clipboard; **Download full log** saves it as a file. A copy also stays in your render folder.
+- **Old UI/error persists:** stop the running dashboard with Control-C, run `git pull origin main` in this project folder, relaunch `start_windows.bat` or `start.command`, and hard-refresh the browser (Ctrl-Shift-R on Windows, Command-Shift-R on Mac). Confirm the header says **BUILD 2026.09.27.1**. If port 8765 is already in use, stop the older dashboard first.
 - **A preview is only two seconds despite a longer scene plan:** update `app.py` to build 2026.09.25.2. Older builds could download one partial movie file instead of Manim's finished movie.
-- **Port already in use:** launch with `MOTION_STUDIO_PORT=8766 .venv/bin/python app.py` and visit port 8766.
+- **Port already in use:** stop the older app. Alternatively, on macOS launch with `MOTION_STUDIO_PORT=8766 .venv/bin/python app.py`; on Windows PowerShell set `$env:MOTION_STUDIO_PORT = '8766'` before launching `start_windows.bat`.
