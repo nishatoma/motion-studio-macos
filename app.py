@@ -30,7 +30,7 @@ import windows_support
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.29.2"
+BUILD_ID = "2026.09.29.3"
 JOBS_DIR = windows_support.output_dir()
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -394,20 +394,22 @@ def visual_illustration_request(prompt: str) -> bool:
 
 def illustration_prompt(prompt: str, critique: str = "") -> str:
     return f"""Plan a short original Manim VECTOR ILLUSTRATION. Return only JSON matching the schema. No Python, SVG files, or external assets.
-Compose a recognizable object or abstract visual from multiple vector pieces. Use polygon for angular surfaces, path for curved silhouettes, ellipse/circle/ring/arc for details, and layered filled shapes for depth. polygon/path points are LOCAL offsets from position, with 2 to 16 pairs. Use fill_opacity between 0 and 1, optional fill_color, stroke_width 1 to 16, glow true on luminous focal pieces, rotation in degrees. Choose a restrained palette: #F4F9FB white, #FFB56B gold, #55EDE3 aqua, #FF7972 coral. Keep shapes within the 16:9 frame (x -6.5 to 6.5, y -3.4 to 3.4). Each component that moves or disappears needs a unique id. Later beats can act on prior ids: move_to or shift with position [x,y], scale with factor, rotate with degrees, or fade_out. Actions cannot refer to an item created in the same beat. Do not repeat the same object in later beats; animate its id. Use 2 to 5 beats and preserve the requested order and duration. Every beat should show actual visual change, not a static hold dressed up with titles. Only use text if the user explicitly asks for it; do not invent titles, subtitles, captions, or labels. Do not substitute a generic rectangle for a named object; build the object from several parts. Keep the background empty for transparent export.
+Compose a recognizable object or abstract visual from multiple vector pieces. Use polygon for angular surfaces, path for curved silhouettes, ellipse/circle/ring/arc for details, and layered filled shapes for depth. polygon/path points are LOCAL offsets from position, with 2 to 16 pairs. Use fill_opacity between 0 and 1, optional fill_color, stroke_width 1 to 16, glow true on luminous focal pieces, rotation in degrees. Choose a restrained palette: #F4F9FB white, #FFB56B gold, #55EDE3 aqua, #FF7972 coral. Keep shapes within the 16:9 frame (x -6.5 to 6.5, y -3.4 to 3.4). Each component that moves or disappears needs a unique id. Later beats can act on prior ids: move_to or shift with position [x,y], scale with factor, rotate with degrees, or fade_out. Actions cannot refer to an item created in the same beat. Do not repeat the same object in later beats; animate its id. Use 2 to 3 beats and at most 12 total pieces; create the detailed object once, then animate its parts with actions. Use only the JSON fields needed for each item and at most 8 points per path. Preserve the requested order and duration. Every beat should show actual visual change, not a static hold dressed up with titles. Only use text if the user explicitly asks for it; do not invent titles, subtitles, captions, or labels. Do not substitute a generic rectangle for a named object; build the object from several parts. Keep the background empty for transparent export.
 User request: {prompt}{critique}"""
 
 
 def generate_illustration(prompt: str, model: str) -> dict[str, Any]:
     last_error = None
-    for attempt in range(2):
+    for attempt in range(3):
         try:
             response = local_json(f"{OLLAMA_URL}/api/generate", {
                 "model": model, "prompt": illustration_prompt(prompt,
                     f"\nPrevious plan failed: {last_error}. Repair the exact issue." if last_error else ""),
                 "stream": False, "think": False, "format": PLAN_SCHEMA,
-                "options": {"temperature": 0.15, "num_ctx": 6144, "num_predict": 2500},
+                "options": {"temperature": 0.1, "num_ctx": 16384, "num_predict": 6000},
             }, timeout=300)
+            if response.get("done_reason") == "length":
+                raise ValueError("Ollama reached its output limit before finishing the JSON; shorten the plan.")
             plan = validate_spec(json.loads(response.get("response", "")))
             illustration_items = [item for beat in plan["beats"] for item in beat["items"]]
             vector_items = [item for item in illustration_items if item["type"] in

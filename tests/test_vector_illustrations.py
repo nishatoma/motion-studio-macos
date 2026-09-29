@@ -67,6 +67,26 @@ class VectorIllustrationTest(unittest.TestCase):
         old = {"template": "empty_savings_jar"}
         self.assertEqual(app.validated_plan(old)["template"], "empty_savings_jar")
 
+    def test_truncated_json_retries_with_more_room_and_a_compact_plan(self):
+        responses = [
+            {"response": '{"beats":[{"items":[', "done_reason": "length"},
+            {"response": json.dumps(SAVINGS_PLAN), "done_reason": "stop"},
+        ]
+        with patch.object(app, "local_json", side_effect=responses) as call:
+            plan = app.generate_illustration("Draw a jar and fade a coin. Show $0.", "qwen3.6:27b")
+        self.assertIn("vector illustration", plan["_source"])
+        self.assertEqual(call.call_count, 2)
+        self.assertEqual(call.call_args_list[0].args[1]["options"]["num_predict"], 6000)
+        self.assertIn("output limit", call.call_args_list[1].args[1]["prompt"])
+
+    def test_malformed_json_retries_before_reporting_error(self):
+        with patch.object(app, "local_json", side_effect=[
+            {"response": '{"beats": [}', "done_reason": "stop"},
+            {"response": json.dumps(SAVINGS_PLAN), "done_reason": "stop"},
+        ]) as call:
+            app.generate_illustration("Draw a jar and fade a coin. Show $0.", "qwen3.6:27b")
+        self.assertEqual(call.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
