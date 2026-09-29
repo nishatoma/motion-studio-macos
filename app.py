@@ -29,7 +29,7 @@ import windows_support
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.27.2"
+BUILD_ID = "2026.09.29.1"
 JOBS_DIR = windows_support.output_dir()
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -377,7 +377,22 @@ def green_money_card_plan(prompt: str) -> dict[str, Any] | None:
             "_source": "directed green $500 card"}
 
 
+def finance_icon_plan(prompt: str) -> dict[str, Any] | None:
+    """Use actual icon drawings for the two short talking-head overlays."""
+    value = prompt.lower()
+    if re.search(r"\b(?:savings?\s+jar|empty\s+jar)\b", value) and not re.search(r"\bcredit\s+card\b", value):
+        return {"template": "empty_savings_jar", "background": "#0C1019",
+                "_source": "directed empty savings jar icon"}
+    if re.search(r"\bcredit\s+card\b", value) and re.search(r"\b(?:tap|terminal|payment)\b", value):
+        return {"template": "credit_card_tap", "background": "#0C1019",
+                "_source": "directed credit card tap icon"}
+    return None
+
+
 def validated_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    if plan.get("template") in {"empty_savings_jar", "credit_card_tap"}:
+        return {"template": plan["template"], "background": "#0C1019",
+                "_source": "directed finance icon"}
     if plan.get("template") == "green_money_card":
         return {"template": "green_money_card", "background": "#0C1019",
                 "_source": "directed green $500 card"}
@@ -535,6 +550,9 @@ def generate_storyboard(prompt: str, model: str) -> dict[str, Any]:
 
 
 def generate_plan(prompt: str, model: str, planning_quality: str = "polished") -> dict[str, Any]:
+    icon = finance_icon_plan(prompt)
+    if icon:
+        return icon
     money_card = green_money_card_plan(prompt)
     if money_card:
         return money_card
@@ -598,6 +616,7 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
         job = JOBS[job_id]
         job["status"] = "planning"
         job["message"] = ("Reusing the scene plan…" if existing_plan is not None
+                          else "Drawing the savings jar or credit card icon…" if finance_icon_plan(prompt)
                           else "Drawing the green $500 card…" if green_money_card_plan(prompt)
                           else "Drawing a one-second strike through AWARENESS…" if awareness_strike_plan(prompt)
                           else "Laying out four fixed stages and a moving arrow…" if financial_stages_plan(prompt)
@@ -701,6 +720,8 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
                        if plan.get("template") else "Render ready.")
             if plan.get("template") == "awareness_strike":
                 duration = 2.0
+            elif plan.get("template") in {"empty_savings_jar", "credit_card_tap"}:
+                duration = 1.65
             elif plan.get("template") == "green_money_card":
                 duration = 3.0
             elif plan.get("template") == "financial_stages":
@@ -977,7 +998,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(400, {"error": "Choose a valid planning quality."})
             if not prompt or len(prompt) > MAX_PROMPT:
                 return self._json(400, {"error": f"Enter a prompt between 1 and {MAX_PROMPT} characters."})
-            if not (financial_stages_plan(prompt) or awareness_strike_plan(prompt)) and model not in ollama_models():
+            if not (financial_stages_plan(prompt) or awareness_strike_plan(prompt) or finance_icon_plan(prompt)) and model not in ollama_models():
                 return self._json(400, {"error": "Choose a model shown in the dashboard. Confirm Ollama is running."})
             job_id = uuid.uuid4().hex[:12]
             with LOCK:

@@ -129,6 +129,12 @@ class GeneratedScene(Scene):
         if spec.get("template") == "green_money_card":
             self.green_money_card()
             return
+        if spec.get("template") == "empty_savings_jar":
+            self.empty_savings_jar()
+            return
+        if spec.get("template") == "credit_card_tap":
+            self.credit_card_tap()
+            return
         if spec.get("template") == "financial_stages":
             self.financial_stages()
             return
@@ -346,6 +352,49 @@ class GeneratedScene(Scene):
         self.play(FadeIn(pulse), run_time=0.35)
         self.play(FadeOut(pulse), run_time=0.55)
         self.wait(1.7)
+
+    def empty_savings_jar(self):
+        """Literal savings icon with no model-authored title or subtitle."""
+        white, amber = "#F4F9FB", "#FFB56B"
+        body = RoundedRectangle(width=1.9, height=2.0, corner_radius=0.24,
+                                stroke_color=white, stroke_width=5,
+                                fill_opacity=0).move_to([0, 0.1, 0])
+        rim = Line([-1.08, 1.20, 0], [1.08, 1.20, 0],
+                   color=white, stroke_width=6)
+        jar = VGroup(body, rim)
+        coin = Circle(radius=0.29, color=amber, stroke_width=3,
+                      fill_color=amber, fill_opacity=0.85).move_to([0, -0.40, 0])
+        zero = Text("$0", font="Arial", font_size=48, color=amber,
+                    weight="BOLD").move_to([0, -1.58, 0])
+        self.play(Create(jar), run_time=0.35)
+        self.play(FadeIn(coin), run_time=0.20)
+        self.play(FadeOut(coin), FadeIn(zero, shift=UP * 0.08), run_time=0.30)
+        self.wait(0.55)
+        self.play(FadeOut(jar), FadeOut(zero), run_time=0.25)
+
+    def credit_card_tap(self):
+        """One physical card tap, drawn as vectors on transparent alpha."""
+        white, amber = "#F4F9FB", "#FFB56B"
+        card_outline = RoundedRectangle(width=2.25, height=1.42,
+                                        corner_radius=0.18, stroke_color=white,
+                                        stroke_width=5, fill_opacity=0).move_to([-1.25, 0, 0])
+        chip = RoundedRectangle(width=0.36, height=0.28,
+                                corner_radius=0.05, stroke_color=amber,
+                                stroke_width=2, fill_opacity=0).move_to([-1.84, 0.13, 0])
+        card = VGroup(card_outline, chip)
+        terminal = RoundedRectangle(width=0.83, height=1.45,
+                                    corner_radius=0.13, stroke_color=white,
+                                    stroke_width=4, fill_opacity=0).move_to([1.50, 0, 0])
+        terminal_screen = Line([1.27, 0.35, 0], [1.73, 0.35, 0],
+                               color=white, stroke_width=3)
+        device = VGroup(terminal, terminal_screen)
+        pulse = Circle(radius=0.24, color=amber, stroke_width=6).move_to([1.03, 0, 0])
+        self.play(FadeIn(card, shift=LEFT * 0.10), Create(device), run_time=0.30)
+        self.play(card.animate.shift(RIGHT * 1.05), run_time=0.45, rate_func=smooth)
+        self.play(FadeIn(pulse, scale=0.65), run_time=0.15)
+        self.play(FadeOut(pulse, scale=1.4), run_time=0.15)
+        self.wait(0.35)
+        self.play(FadeOut(card), FadeOut(device), run_time=0.25)
 
     def portfolio_growth(self, spec):
         monthly = spec["monthly"]

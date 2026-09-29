@@ -117,6 +117,8 @@ For the fixed four-stage overlay, begin the prompt with **“Financial stages ar
 
 For a two-second white-word/red-line animation, use **“Awareness strikethrough”** or describe a red line crossing through the word awareness. This selects a directed Manim scene with only **AWARENESS** centered on screen: the white word and its soft spill light and drop shadow fade in for 0.35 seconds, wait 0.15 seconds, a glowing red line draws across it for exactly 1 second, and the result holds for 0.5 seconds. No other labels are added. These effects are rendered into both the transparent MOV overlay and the dark MP4.
 
+For short talking-head overlays, ask for an **“empty savings jar”** with a coin fading away and **$0**, or a **“credit card tap at a payment terminal”**. These phrases select fixed 1.65-second Manim icon animations with no storyboard titles or subtitles. Select **Transparent background for Resolve (.mov)** for an alpha overlay.
+
 The directed graph includes a small face-shaped marker placeholder. For an ending milestone, it derives an illustrative constant annual return so the curve actually reaches the requested amount. The percentage appears in a footnote. Replace the marker with your own keyed or masked footage in Resolve if desired.
 
 ## Current scope
