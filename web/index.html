@@ -46,12 +46,12 @@
       <label class="label" for="prompt">What should happen?</label>
       <textarea id="prompt">Show how a pay raise can disappear into lifestyle inflation. Animate extra income flowing into bigger bills and impulse spending, then compare that path with investing the extra money.</textarea>
       <div class="row"><div><label class="label" for="model">Local model</label><select id="model"><option>Looking for Ollama…</option></select></div><div><label class="label" for="preset">Render quality</label><select id="preset"><option value="preview">Preview · 720p / 24 fps</option><option value="1080p">YouTube · 1080p / 24 fps</option><option value="4k24">YouTube 4K · 24 fps</option><option value="4k60">4K · 60 fps</option></select></div></div>
-      <label class="label" for="planningQuality">Planning quality</label><select id="planningQuality"><option value="polished">Polished · visual storyboard / adaptive model budget</option><option value="fast">Fast · one experimental model plan</option></select>
+      <label class="label" for="planningQuality">Planning quality</label><select id="planningQuality"><option value="polished">Polished · vector illustrations or storyboards</option><option value="fast">Fast · one experimental model plan</option></select>
       <label class="option" for="transparent"><input id="transparent" type="checkbox">Transparent background for Resolve (.mov)</label>
       <p class="hint option-hint">Exports only the Manim graphics with alpha as ProRes 4444. The browser preview uses a dark backing; the downloaded MOV is transparent. The dark MP4 has a separate glow finish.</p>
       <button id="render" class="button">Generate animation</button>
       <button id="rerender" class="button secondary" hidden>Render same scene at selected quality</button>
-      <p class="hint">Data graphics use vivid aqua and amber accents. Choose a dark MP4 or a transparent MOV overlay. Polished builds a directed graph for supported investment prompts; other ideas become visual storyboards. Preview first, then render the same scene at 4K.</p>
+      <p class="hint">Data graphics use vivid aqua and amber accents. Choose a dark MP4 or transparent MOV overlay. Polished draws requested objects from Manim vector shapes and uses storyboards for labeled diagrams. Preview first, then render the same scene at 4K.</p>
       </div>
       <div id="status" class="status">Checking Ollama and Manim…</div>
       <div class="log-tools"><button id="logToggle" class="linkbtn" type="button" aria-expanded="false">Show latest render log</button><button id="logCopy" class="linkbtn" type="button" hidden>Copy full log</button><a id="logDownload" class="linkbtn" hidden download="motion-studio.log">Download full log</a></div>

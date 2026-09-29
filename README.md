@@ -108,7 +108,7 @@ The workflow must produce an MP4, WebM, or MOV output. The app converts WebM/MOV
 
 ### Data graphics
 
-1. Open **Data graphics**, write a visual prompt, choose an Ollama model, **Polished** planning, and the 720p preset. Click **Generate animation**. Polished uses a directed layout for supported monthly-investing graphs; other suitable prompts use the limited storyboard vocabulary.
+1. Open **Data graphics**, write a visual prompt, choose an Ollama model, **Polished** planning, and the 720p preset. Click **Generate animation**. Polished uses a directed layout for supported monthly-investing graphs; requests to draw objects or abstract shapes use the vector illustration planner; labeled concepts use storyboard layouts.
 2. Review the preview. For the approved scene, choose 1080p or 4K and click **Render same scene at selected quality**. This reuses the validated plan without another Ollama request.
 3. For an overlay over footage in Resolve, check **Transparent background for Resolve (.mov)** before either render. This exports a ProRes 4444 MOV with an alpha channel. The browser shows a separate MP4 preview on a dark backing; download the MOV and place it above your footage in Resolve. A normal dark render remains an MP4 with a glow finish. You can switch background mode when rendering the same scene at a higher quality.
 4. Click **Download MOV · alpha** or **Download MP4**. Completed exports are also under `~/Movies/Nisha Motion Graphics/`.
@@ -117,13 +117,13 @@ For the fixed four-stage overlay, begin the prompt with **“Financial stages ar
 
 For a two-second white-word/red-line animation, use **“Awareness strikethrough”** or describe a red line crossing through the word awareness. This selects a directed Manim scene with only **AWARENESS** centered on screen: the white word and its soft spill light and drop shadow fade in for 0.35 seconds, wait 0.15 seconds, a glowing red line draws across it for exactly 1 second, and the result holds for 0.5 seconds. No other labels are added. These effects are rendered into both the transparent MOV overlay and the dark MP4.
 
-For short talking-head overlays, ask for an **“empty savings jar”** with a coin fading away and **$0**, or a **“credit card tap at a payment terminal”**. These phrases select fixed 1.65-second Manim icon animations with no storyboard titles or subtitles. Select **Transparent background for Resolve (.mov)** for an alpha overlay.
+For short talking-head overlays, ask for an **“empty savings jar”** with a coin fading away and **$0**, or a **“credit card tap at a payment terminal”**. These descriptions use the vector illustration planner, which composes a drawing from paths, polygons, arcs, rings, ellipses, and other safe Manim primitives. It can move, rotate, scale, and fade individual components across beats. Select **Transparent background for Resolve (.mov)** for an alpha overlay. Existing fixed-icon plans still rerender unchanged.
 
 The directed graph includes a small face-shaped marker placeholder. For an ending milestone, it derives an illustrative constant annual return so the curve actually reaches the requested amount. The percentage appears in a footnote. Replace the marker with your own keyed or masked footage in Resolve if desired.
 
 ## Current scope
 
-The Manim storyboard supports seven reusable visual relationships: bold statements, comparisons, flows, timelines, cycles, stacked layers, and networks. It cannot draw arbitrary cinematic imagery from a sentence; use Abstract video for that. Fast mode retains the older shapes and graph vocabulary. Transparent export applies to **Data graphics**; image-to-video backends still export opaque MP4. Direct Resolve project integration and free-form custom Manim code are not included.
+The Manim storyboard supports seven reusable visual relationships: bold statements, comparisons, flows, timelines, cycles, stacked layers, and networks. The vector planner supports bounded shapes and per-object animations from validated JSON; it does not execute model-authored Python or create photorealistic imagery. Use Abstract video for cinematic imagery. Transparent export applies to **Data graphics**; image-to-video backends still export opaque MP4. Direct Resolve project integration and free-form custom Manim code are not included.
 
 The server binds to `127.0.0.1` only. Ollama and Manim communicate locally; Windows ComfyUI also uses localhost. The app does not upload prompts or renders to a hosted service.
 

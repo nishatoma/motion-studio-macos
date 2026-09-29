@@ -36,15 +36,49 @@ def make_item(item):
     if kind in {"title", "text", "number"}:
         mob = Text(item["text"], font="Arial", font_size=item["size"], color=tint, weight="BOLD" if kind == "title" else "NORMAL")
         return mob.move_to(point)
-    if kind == "line":
+    if kind in {"line", "arrow"}:
         w, h = item["size"]
-        return Line(point + LEFT * w / 2 + DOWN * h / 2, point + RIGHT * w / 2 + UP * h / 2, color=tint, stroke_width=5)
+        start, end = point + LEFT * w / 2 + DOWN * h / 2, point + RIGHT * w / 2 + UP * h / 2
+        if kind == "arrow":
+            return Arrow(start, end, buff=0, color=tint, stroke_width=item.get("stroke_width", 5))
+        return Line(start, end, color=tint, stroke_width=item.get("stroke_width", 5))
     if kind == "circle":
         w, _ = item["size"]
-        return Circle(radius=max(0.1, w / 2), color=tint, stroke_width=5).move_to(point)
+        return Circle(radius=max(0.1, w / 2), color=tint,
+                      stroke_width=item.get("stroke_width", 5), fill_color=item.get("fill_color", tint),
+                      fill_opacity=item.get("fill_opacity", 0)).move_to(point)
     if kind == "rectangle":
         w, h = item["size"]
-        return RoundedRectangle(width=w, height=h, corner_radius=0.15, color=tint, stroke_width=4).move_to(point)
+        return RoundedRectangle(width=w, height=h, corner_radius=min(0.15, w / 4, h / 4),
+                                color=tint, stroke_width=item.get("stroke_width", 4),
+                                fill_color=item.get("fill_color", tint),
+                                fill_opacity=item.get("fill_opacity", 0)).move_to(point)
+    if kind in {"ring", "ellipse", "polygon", "path", "arc", "star"}:
+        w, h = item["size"]
+        if kind == "ring":
+            mob = Annulus(inner_radius=max(0.03, w * 0.30), outer_radius=max(0.08, w * 0.5),
+                          color=tint, fill_opacity=max(0.05, item.get("fill_opacity", 0.35)))
+        elif kind == "ellipse":
+            mob = Ellipse(width=w, height=h)
+        elif kind == "polygon":
+            mob = Polygon(*(np.array([x, y, 0]) for x, y in item["points"]))
+        elif kind == "path":
+            mob = VMobject()
+            mob.set_points_smoothly([np.array([x, y, 0]) for x, y in item["points"]])
+        elif kind == "arc":
+            mob = Arc(radius=w / 2, start_angle=item["start_angle"] * DEGREES,
+                      angle=item["angle"] * DEGREES)
+        else:
+            mob = Star(n=5, outer_radius=w / 2)
+        if kind in {"polygon", "path"}:
+            mob.shift(point)
+        else:
+            mob.move_to(point)
+        mob.set_stroke(tint, width=item.get("stroke_width", 4))
+        if kind not in {"path", "arc"}:
+            mob.set_fill(item.get("fill_color", tint), opacity=item.get("fill_opacity", 0))
+        mob.rotate(item.get("rotation", 0) * DEGREES, about_point=point)
+        return mob
     if kind == "face_marker":
         return make_face_marker(point, item["size"], tint)
     if kind == "graph":
@@ -145,10 +179,12 @@ class GeneratedScene(Scene):
             self.storyboard(spec)
             return
         visible = VGroup()
+        objects = {}
         for beat in spec["beats"]:
             if beat.get("clear_before") and len(visible):
                 self.play(FadeOut(visible), run_time=0.35)
                 visible = VGroup()
+                objects.clear()
             animations = []
             new_items = VGroup()
             for data in beat["items"]:
@@ -157,8 +193,16 @@ class GeneratedScene(Scene):
                     mob, marker, path = built
                 else:
                     mob, marker, path = built, None, None
+                if data.get("glow") and data["type"] not in {"graph", "text", "title", "number", "face_marker"}:
+                    # Vector halo stays within the transparent MOV alpha channel.
+                    halo = VGroup(*(mob.copy().set_fill(opacity=0).set_stroke(
+                        data["color"], width=data["stroke_width"] * factor, opacity=opacity)
+                        for factor, opacity in ((5, 0.05), (3, 0.09))))
+                    mob = VGroup(halo, mob)
                 new_items.add(mob)
-                if data["type"] in {"line", "circle", "rectangle", "graph"}:
+                if data.get("id"):
+                    objects[data["id"]] = mob
+                if data["type"] in {"line", "arrow", "circle", "ring", "ellipse", "rectangle", "polygon", "path", "arc", "star", "graph"}:
                     animations.append(Create(mob))
                 else:
                     animations.append(FadeIn(mob, shift=UP * 0.12))
@@ -168,9 +212,27 @@ class GeneratedScene(Scene):
                         FadeIn(marker, run_time=0.12),
                         MoveAlongPath(marker, path, rate_func=smooth),
                     ))
+            for action in beat.get("actions", []):
+                mob = objects[action["target"]]
+                kind = action["type"]
+                if kind == "fade_out":
+                    animations.append(FadeOut(mob))
+                elif kind == "move_to":
+                    x, y = action["position"]
+                    animations.append(mob.animate.move_to([x, y, 0]))
+                elif kind == "shift":
+                    x, y = action["position"]
+                    animations.append(mob.animate.shift([x, y, 0]))
+                elif kind == "scale":
+                    animations.append(mob.animate.scale(action["factor"]))
+                elif kind == "rotate":
+                    animations.append(mob.animate.rotate(action["degrees"] * DEGREES))
             if animations:
                 self.play(AnimationGroup(*animations, lag_ratio=0), run_time=beat["duration"], rate_func=smooth)
                 visible.add(*new_items)
+                for action in beat.get("actions", []):
+                    if action["type"] == "fade_out":
+                        visible.remove(objects.pop(action["target"]))
             else:
                 self.wait(beat["duration"])
         self.wait(0.4)

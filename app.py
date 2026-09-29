@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import platform
 import secrets
 from email import policy
@@ -29,7 +30,7 @@ import windows_support
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.29.1"
+BUILD_ID = "2026.09.29.2"
 JOBS_DIR = windows_support.output_dir()
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -68,7 +69,9 @@ PRESETS = {
     "4k24": {"width": 3840, "height": 2160, "fps": 24, "label": "YouTube 4K · 24 fps"},
     "4k60": {"width": 3840, "height": 2160, "fps": 60, "label": "4K · 60 fps"},
 }
-OBJECT_TYPES = ["text", "title", "number", "line", "circle", "rectangle", "graph", "face_marker"]
+OBJECT_TYPES = ["text", "title", "number", "line", "arrow", "circle", "ring",
+                "ellipse", "rectangle", "polygon", "path", "arc", "star", "graph", "face_marker"]
+ACTION_TYPES = ["move_to", "shift", "scale", "rotate", "fade_out"]
 PLAN_SCHEMA = {
     "type": "object",
     "properties": {
@@ -82,6 +85,7 @@ PLAN_SCHEMA = {
                     "type": "object",
                     "properties": {
                         "type": {"type": "string", "enum": OBJECT_TYPES},
+                        "id": {"type": "string"},
                         "text": {"type": "string"},
                         "color": {"type": "string"},
                         "position": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
@@ -89,11 +93,26 @@ PLAN_SCHEMA = {
                         "curve": {"type": "string", "enum": ["exponential", "linear", "logarithmic"]},
                         "x_label": {"type": "string"},
                         "y_label": {"type": "string"},
-                        "marker": {"type": "boolean"}
+                        "marker": {"type": "boolean"},
+                        "points": {"type": "array", "items": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}},
+                        "fill_opacity": {"type": "number"},
+                        "fill_color": {"type": "string"},
+                        "glow": {"type": "boolean"},
+                        "stroke_width": {"type": "number"},
+                        "rotation": {"type": "number"},
+                        "start_angle": {"type": "number"},
+                        "angle": {"type": "number"}
                     },
                     "required": ["type"],
                     "additionalProperties": False
-                }}
+                }},
+                "actions": {"type": "array", "items": {"type": "object", "properties": {
+                    "target": {"type": "string"},
+                    "type": {"type": "string", "enum": ACTION_TYPES},
+                    "position": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+                    "factor": {"type": "number"},
+                    "degrees": {"type": "number"},
+                }, "required": ["target", "type"], "additionalProperties": False}}
             },
             "required": ["items"],
             "additionalProperties": False
@@ -234,15 +253,17 @@ def validate_spec(spec: Any) -> dict[str, Any]:
     if not 1 <= len(spec["beats"]) <= 12:
         raise ValueError("The animation plan must have between 1 and 12 beats.")
     clean: dict[str, Any] = {"background": "#0C1019", "beats": []}
-    allowed = {"text", "title", "line", "circle", "rectangle", "graph", "face_marker", "number"}
+    allowed = set(OBJECT_TYPES)
+    existing_ids: set[str] = set()
     for beat in spec["beats"]:
         if not isinstance(beat, dict):
             raise ValueError("Each beat must be an object.")
         duration = max(0.4, min(8.0, float(beat.get("duration", 2.0))))
         items = beat.get("items", [])
-        if not isinstance(items, list) or len(items) > 10:
-            raise ValueError("Each beat can contain up to 10 objects.")
+        if not isinstance(items, list) or len(items) > 24:
+            raise ValueError("Each beat can contain up to 24 objects.")
         safe_items = []
+        new_ids: set[str] = set()
         for item in items:
             if not isinstance(item, dict):
                 raise ValueError("Every object in the plan must be a JSON object.")
@@ -264,14 +285,35 @@ def validate_spec(spec: Any) -> dict[str, Any]:
                              else "#F4F9FB" if kind == "text" else "#55EDE3")
             out = {"type": kind, "color": validate_color(item.get("color"), default_color),
                    "position": _pair(item.get("position", [0, 0]), [-1, 0])}
+            item_id = str(item.get("id", "")).strip()
+            if item_id:
+                if not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_]{0,31}", item_id) or item_id in existing_ids or item_id in new_ids:
+                    raise ValueError("Object ids must be unique short names beginning with a letter.")
+                out["id"] = item_id
+                new_ids.add(item_id)
             if kind in {"text", "title", "number"}:
                 text = str(item.get("text", ""))[:100]
                 if not text:
                     raise ValueError("Text objects need non-empty text.")
                 out["text"] = text
                 out["size"] = max(16, min(72, int(item.get("size", 44 if kind == "title" else 30))))
-            elif kind in {"line", "circle", "rectangle"}:
-                out["size"] = _pair(item.get("size", [3, 1]), [3, 1])
+            elif kind in {"line", "arrow", "circle", "ring", "ellipse", "rectangle", "polygon", "path", "arc", "star"}:
+                size = _pair(item.get("size", [3, 1]), [3, 1])
+                out["size"] = [max(0.1, min(10.0, abs(value))) for value in size]
+                out["stroke_width"] = _bounded(item.get("stroke_width", 4), 1, 16, 4)
+                out["fill_opacity"] = _bounded(item.get("fill_opacity", 0), 0, 1, 0)
+                out["fill_color"] = validate_color(item.get("fill_color"), out["color"])
+                out["glow"] = bool(item.get("glow", False))
+                out["rotation"] = _bounded(item.get("rotation", 0), -360, 360, 0)
+                if kind in {"polygon", "path"}:
+                    points = item.get("points", [])
+                    minimum = 3 if kind == "polygon" else 2
+                    if not isinstance(points, list) or not minimum <= len(points) <= 16:
+                        raise ValueError(f"{kind} needs {minimum} to 16 local points.")
+                    out["points"] = [_local_pair(point) for point in points]
+                if kind == "arc":
+                    out["start_angle"] = _bounded(item.get("start_angle", 0), -360, 360, 0)
+                    out["angle"] = _bounded(item.get("angle", 180), -360, 360, 180)
             elif kind == "graph":
                 curve = item.get("curve", "exponential")
                 out["curve"] = curve if curve in {"exponential", "linear", "logarithmic"} else "exponential"
@@ -282,24 +324,120 @@ def validate_spec(spec: Any) -> dict[str, Any]:
             elif kind == "face_marker":
                 out["size"] = max(0.35, min(1.0, float(item.get("size", 0.55))))
             safe_items.append(out)
-        clean["beats"].append({"duration": duration, "clear_before": bool(beat.get("clear_before", False)), "items": safe_items})
+        actions = beat.get("actions", [])
+        if not isinstance(actions, list) or len(actions) > 24:
+            raise ValueError("Each beat can animate up to 24 existing objects.")
+        safe_actions = []
+        targeted: set[str] = set()
+        for action in actions:
+            if not isinstance(action, dict):
+                raise ValueError("Each action must be an object.")
+            target, kind = str(action.get("target", "")), str(action.get("type", ""))
+            if target not in existing_ids or target in targeted or kind not in ACTION_TYPES:
+                raise ValueError("Actions need a unique target created in an earlier beat and a supported type.")
+            targeted.add(target)
+            safe_action: dict[str, Any] = {"target": target, "type": kind}
+            if kind in {"move_to", "shift"}:
+                safe_action["position"] = _pair(action.get("position", [0, 0]), [0, 0])
+            if kind == "scale":
+                safe_action["factor"] = _bounded(action.get("factor", 1), 0.2, 3, 1)
+            if kind == "rotate":
+                safe_action["degrees"] = _bounded(action.get("degrees", 0), -360, 360, 0)
+            safe_actions.append(safe_action)
+        existing_ids.update(new_ids)
+        existing_ids.difference_update(action["target"] for action in safe_actions if action["type"] == "fade_out")
+        if beat.get("clear_before"):
+            # A clear happens before this beat's additions, so earlier ids are gone.
+            if safe_actions:
+                raise ValueError("Actions cannot target objects cleared at the start of the beat.")
+            existing_ids = set(new_ids)
+        clean["beats"].append({"duration": duration, "clear_before": bool(beat.get("clear_before", False)),
+                               "items": safe_items, "actions": safe_actions})
     return clean
+
+
+def _bounded(value: Any, low: float, high: float, default: float) -> float:
+    try:
+        number = float(value)
+        return max(low, min(high, number)) if math.isfinite(number) else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _local_pair(value: Any) -> list[float]:
+    if not isinstance(value, list) or len(value) != 2:
+        raise ValueError("Each vector point needs two coordinates.")
+    return [_bounded(component, -5, 5, 0) for component in value]
 
 
 def _pair(value: Any, fallback: list[float]) -> list[float]:
     if not isinstance(value, list) or len(value) != 2:
         return fallback
     try:
-        return [max(-6.5, min(6.5, float(value[0]))), max(-3.4, min(3.4, float(value[1])))]
+        return [_bounded(value[0], -6.5, 6.5, fallback[0]),
+                _bounded(value[1], -3.4, 3.4, fallback[1])]
     except (TypeError, ValueError):
         return fallback
 
 
 def make_prompt(user_prompt: str) -> str:
     return f"""Create a short, polished 2D motion-graphics sequence for a personal-finance YouTube video.
-Return ONLY JSON that follows the supplied schema. For each item's `type`, use only one exact value from this list: text, title, number, line, circle, rectangle, graph, face_marker. Do not invent new object types such as axes, arrow, label, or icon; express those ideas using graph, line, text, circle, or face_marker. Create 3 to 7 beats, each 1 to 4 seconds. Every explicitly requested dollar milestone must appear as a text or number item containing its exact label. Never substitute generic circles or lines for named milestones. Keep text concise and legible. Use warm amber #FFB56B for the focal amount, bright aqua #55EDE3 for supporting connections, and white #F4F9FB for labels. The renderer applies a dark background and glow finish. Coordinates are centered Manim frame coordinates: x roughly -7 to 7, y roughly -4 to 4. For graphs, use graph type and labels; if the user asks for a face moving along the curve, set the graph item's marker to true. Do not add markdown or code fences.
+Return ONLY JSON that follows the supplied schema. Use exact object types from this list: {', '.join(OBJECT_TYPES)}. Never invent object types or Python code. For detailed object drawings, compose paths, polygons, arcs, rings, ellipses and other shapes. Each item may have a unique id; later beats may animate that id with an action. Create 2 to 7 beats. Every explicitly requested dollar milestone must appear as a text or number item containing its exact label. Keep text concise and legible. Use warm amber #FFB56B for the focal amount, bright aqua #55EDE3 for supporting connections, and white #F4F9FB for labels. The renderer applies a dark background and glow finish. Coordinates are centered Manim frame coordinates: x roughly -7 to 7, y roughly -4 to 4. Polygon/path points are local offsets from item position. Do not add markdown or code fences.
 
 User's animation request: {user_prompt}"""
+
+
+def visual_illustration_request(prompt: str) -> bool:
+    """Send object and abstract-shape requests to the vector planner, not title layouts."""
+    return bool(re.search(r"\b(?:icon|jar|credit card|coin|wallet|piggy bank|draw|illustrat\w*|abstract shapes?|outline|silhouette|no text|without text|no titles?|motion graphic)\b", prompt, re.I))
+
+
+def illustration_prompt(prompt: str, critique: str = "") -> str:
+    return f"""Plan a short original Manim VECTOR ILLUSTRATION. Return only JSON matching the schema. No Python, SVG files, or external assets.
+Compose a recognizable object or abstract visual from multiple vector pieces. Use polygon for angular surfaces, path for curved silhouettes, ellipse/circle/ring/arc for details, and layered filled shapes for depth. polygon/path points are LOCAL offsets from position, with 2 to 16 pairs. Use fill_opacity between 0 and 1, optional fill_color, stroke_width 1 to 16, glow true on luminous focal pieces, rotation in degrees. Choose a restrained palette: #F4F9FB white, #FFB56B gold, #55EDE3 aqua, #FF7972 coral. Keep shapes within the 16:9 frame (x -6.5 to 6.5, y -3.4 to 3.4). Each component that moves or disappears needs a unique id. Later beats can act on prior ids: move_to or shift with position [x,y], scale with factor, rotate with degrees, or fade_out. Actions cannot refer to an item created in the same beat. Do not repeat the same object in later beats; animate its id. Use 2 to 5 beats and preserve the requested order and duration. Every beat should show actual visual change, not a static hold dressed up with titles. Only use text if the user explicitly asks for it; do not invent titles, subtitles, captions, or labels. Do not substitute a generic rectangle for a named object; build the object from several parts. Keep the background empty for transparent export.
+User request: {prompt}{critique}"""
+
+
+def generate_illustration(prompt: str, model: str) -> dict[str, Any]:
+    last_error = None
+    for attempt in range(2):
+        try:
+            response = local_json(f"{OLLAMA_URL}/api/generate", {
+                "model": model, "prompt": illustration_prompt(prompt,
+                    f"\nPrevious plan failed: {last_error}. Repair the exact issue." if last_error else ""),
+                "stream": False, "think": False, "format": PLAN_SCHEMA,
+                "options": {"temperature": 0.15, "num_ctx": 6144, "num_predict": 2500},
+            }, timeout=300)
+            plan = validate_spec(json.loads(response.get("response", "")))
+            illustration_items = [item for beat in plan["beats"] for item in beat["items"]]
+            vector_items = [item for item in illustration_items if item["type"] in
+                            {"polygon", "path", "ellipse", "arc", "ring", "star", "circle", "rectangle", "line", "arrow"}]
+            if len(vector_items) < 3 or not any(item["type"] in
+                    {"polygon", "path", "ellipse", "arc", "ring", "star"} for item in vector_items):
+                raise ValueError("Compose the illustration from at least three vector pieces including a custom shape.")
+            if any(item["type"] == "title" for item in illustration_items):
+                raise ValueError("No generated title is allowed in a vector illustration.")
+            text_requested = bool(re.search(r"\$\s*\d|\b(?:show|display|write|label)\s+(?:the\s+)?(?:text|word|number)\b", prompt, re.I))
+            if not text_requested and any(
+                    item["type"] in {"text", "number"} for item in illustration_items):
+                raise ValueError("This illustration should contain no invented text.")
+            amounts = {re.sub(r"\s+", "", match.group()).upper()
+                       for match in re.finditer(r"\$\s*\d[\d,]*(?:\.\d+)?", prompt)}
+            rendered_amounts = {re.sub(r"\s+", "", item["text"]).upper()
+                                for item in illustration_items if item["type"] in {"text", "number"}
+                                and "text" in item}
+            if amounts and not amounts.issubset(rendered_amounts):
+                raise ValueError("Include every requested dollar amount exactly as written.")
+            if re.search(r"\b(?:fade|fall|tap|swipe|move)\w*\b", prompt, re.I) and not any(
+                    beat["actions"] for beat in plan["beats"]):
+                raise ValueError("Animate a named part across beats to show the requested motion.")
+            plan["_source"] = f"Ollama vector illustration ({model})"
+            return plan
+        except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+            last_error = exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError("Ollama is not responding. Open Ollama and try again.") from exc
+    raise RuntimeError(f"The model could not plan this vector illustration: {last_error}") from last_error
 
 
 def requested_milestones(prompt: str) -> list[str]:
@@ -550,9 +688,6 @@ def generate_storyboard(prompt: str, model: str) -> dict[str, Any]:
 
 
 def generate_plan(prompt: str, model: str, planning_quality: str = "polished") -> dict[str, Any]:
-    icon = finance_icon_plan(prompt)
-    if icon:
-        return icon
     money_card = green_money_card_plan(prompt)
     if money_card:
         return money_card
@@ -566,6 +701,8 @@ def generate_plan(prompt: str, model: str, planning_quality: str = "polished") -
         directed = directed_growth_plan(prompt)
         if directed:
             return validated_plan(directed)
+        if visual_illustration_request(prompt):
+            return generate_illustration(prompt, model)
         return generate_storyboard(prompt, model)
     retry_note = ""
     best_plan, best_score = None, float("inf")
@@ -616,7 +753,7 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
         job = JOBS[job_id]
         job["status"] = "planning"
         job["message"] = ("Reusing the scene plan…" if existing_plan is not None
-                          else "Drawing the savings jar or credit card icon…" if finance_icon_plan(prompt)
+                          else "Planning a vector illustration with Manim shapes…" if planning_quality == "polished" and visual_illustration_request(prompt)
                           else "Drawing the green $500 card…" if green_money_card_plan(prompt)
                           else "Drawing a one-second strike through AWARENESS…" if awareness_strike_plan(prompt)
                           else "Laying out four fixed stages and a moving arrow…" if financial_stages_plan(prompt)
@@ -998,7 +1135,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(400, {"error": "Choose a valid planning quality."})
             if not prompt or len(prompt) > MAX_PROMPT:
                 return self._json(400, {"error": f"Enter a prompt between 1 and {MAX_PROMPT} characters."})
-            if not (financial_stages_plan(prompt) or awareness_strike_plan(prompt) or finance_icon_plan(prompt)) and model not in ollama_models():
+            if not (financial_stages_plan(prompt) or awareness_strike_plan(prompt)) and model not in ollama_models():
                 return self._json(400, {"error": "Choose a model shown in the dashboard. Confirm Ollama is running."})
             job_id = uuid.uuid4().hex[:12]
             with LOCK:
