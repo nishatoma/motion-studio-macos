@@ -137,6 +137,32 @@ class VectorIllustrationTest(unittest.TestCase):
         self.assertEqual([item["text"] for item in result["beats"][1]["items"]],
                          ["$500", "1 MONTH OF LIVING EXPENSES"])
 
+    def test_new_object_action_is_delayed_and_repeated_actions_stay_sequential(self):
+        plan = {"beats": [
+            {"duration": 1.8, "items": [
+                {"type": "path", "id": "coin", "points": [[-1, 0], [0, 1], [1, 0]]},
+                {"type": "ellipse", "size": [1, 1]},
+                {"type": "rectangle", "size": [2, 1]}],
+             "actions": [
+                 {"target": "coin", "type": "move_to", "position": [1, 0]},
+                 {"target": "coin", "type": "scale", "factor": 0.5}]},
+        ]}
+        with patch.object(app, "local_json", return_value={"response": json.dumps(plan)}) as call:
+            result = app.generate_illustration("Draw a coin and move it to the right.", "qwen3.6:27b")
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual([len(beat["actions"]) for beat in result["beats"]], [0, 1, 1])
+        self.assertEqual([beat["actions"][0]["type"] for beat in result["beats"][1:]],
+                         ["move_to", "scale"])
+        self.assertAlmostEqual(sum(beat["duration"] for beat in result["beats"]), 1.8)
+
+    def test_unknown_action_target_is_reported_with_beat_and_id(self):
+        plan = json.loads(json.dumps(SAVINGS_PLAN))
+        plan["beats"][1]["actions"][0]["target"] = "missing_coin"
+        with patch.object(app, "local_json", return_value={"response": json.dumps(plan)}) as call:
+            with self.assertRaisesRegex(RuntimeError, "Beat 2: action target 'missing_coin'"):
+                app.generate_illustration("Draw a jar and fade a coin. Show $0.", "qwen3.6:27b")
+        self.assertEqual(call.call_count, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

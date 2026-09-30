@@ -31,7 +31,7 @@ import windows_support
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.30.2"
+BUILD_ID = "2026.09.30.3"
 JOBS_DIR = windows_support.output_dir()
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -256,7 +256,7 @@ def validate_spec(spec: Any) -> dict[str, Any]:
     clean: dict[str, Any] = {"background": "#0C1019", "beats": []}
     allowed = set(OBJECT_TYPES)
     existing_ids: set[str] = set()
-    for beat in spec["beats"]:
+    for beat_index, beat in enumerate(spec["beats"], start=1):
         if not isinstance(beat, dict):
             raise ValueError("Each beat must be an object.")
         duration = max(0.4, min(8.0, float(beat.get("duration", 2.0))))
@@ -334,8 +334,14 @@ def validate_spec(spec: Any) -> dict[str, Any]:
             if not isinstance(action, dict):
                 raise ValueError("Each action must be an object.")
             target, kind = str(action.get("target", "")), str(action.get("type", ""))
-            if target not in existing_ids or target in targeted or kind not in ACTION_TYPES:
-                raise ValueError("Actions need a unique target created in an earlier beat and a supported type.")
+            if target not in existing_ids:
+                reason = ("is created in the same beat" if target in new_ids
+                          else "does not name an object from an earlier beat")
+                raise ValueError(f"Beat {beat_index}: action target {target!r} {reason}.")
+            if target in targeted:
+                raise ValueError(f"Beat {beat_index}: action target {target!r} appears twice.")
+            if kind not in ACTION_TYPES:
+                raise ValueError(f"Beat {beat_index}: action type {kind!r} is unsupported.")
             targeted.add(target)
             safe_action: dict[str, Any] = {"target": target, "type": kind}
             if kind in {"move_to", "shift"}:
@@ -460,6 +466,57 @@ def repair_illustration_text(spec: Any, prompt: str) -> Any:
     return spec
 
 
+def repair_illustration_actions(spec: Any) -> Any:
+    """Give newly drawn parts and sequential actions their own animation beats."""
+    if not isinstance(spec, dict) or not isinstance(spec.get("beats"), list):
+        return spec
+    existing_ids: set[str] = set()
+    repaired = []
+    for beat in spec["beats"]:
+        if not isinstance(beat, dict) or not isinstance(beat.get("items", []), list) or not isinstance(beat.get("actions", []), list):
+            repaired.append(beat)
+            continue
+        new_ids = {str(item.get("id")) for item in beat.get("items", [])
+                   if isinstance(item, dict) and item.get("id")}
+        actions = beat.get("actions", [])
+        # An unknown target or a clear of an earlier target needs a new plan,
+        # not an invented ID or a silently changed clear operation.
+        if any(not isinstance(action, dict) or
+               action.get("target") not in existing_ids | new_ids or
+               (beat.get("clear_before") and action.get("target") in existing_ids)
+               for action in actions):
+            repaired.append(beat)
+        else:
+            waves: list[list[dict[str, Any]]] = [[]]
+            wave_index = 0
+            for action in actions:
+                target = action["target"]
+                wave_index = max(wave_index, 1 if target in new_ids else 0)
+                while len(waves) <= wave_index:
+                    waves.append([])
+                if any(earlier["target"] == target for earlier in waves[wave_index]):
+                    wave_index += 1
+                while len(waves) <= wave_index:
+                    waves.append([])
+                waves[wave_index].append(action)
+            if len(waves) == 1:
+                repaired.append(beat)
+            else:
+                # Draw first, then act on the newly visible objects. Preserve
+                # action order and use the original beat's time where possible.
+                duration = max(0.4, _bounded(beat.get("duration", 2.0), 0.4, 8.0, 2.0) / len(waves))
+                repaired.append({**beat, "duration": duration, "actions": waves[0]})
+                repaired.extend({"duration": duration, "items": [], "actions": wave}
+                                for wave in waves[1:])
+        if beat.get("clear_before"):
+            existing_ids.clear()
+        existing_ids.update(new_ids)
+        existing_ids.difference_update(action["target"] for action in actions
+                                       if isinstance(action, dict) and action.get("type") == "fade_out"
+                                       and isinstance(action.get("target"), str))
+    return {**spec, "beats": repaired}
+
+
 def generate_illustration(prompt: str, model: str) -> dict[str, Any]:
     last_error = None
     for attempt in range(3):
@@ -472,7 +529,8 @@ def generate_illustration(prompt: str, model: str) -> dict[str, Any]:
             }, timeout=300)
             if response.get("done_reason") == "length":
                 raise ValueError("Ollama reached its output limit before finishing the JSON; shorten the plan.")
-            plan = validate_spec(repair_illustration_text(json.loads(response.get("response", "")), prompt))
+            candidate = repair_illustration_text(json.loads(response.get("response", "")), prompt)
+            plan = validate_spec(repair_illustration_actions(candidate))
             illustration_items = [item for beat in plan["beats"] for item in beat["items"]]
             vector_items = [item for item in illustration_items if item["type"] in
                             {"polygon", "path", "ellipse", "arc", "ring", "star", "circle", "rectangle", "line", "arrow"}]
