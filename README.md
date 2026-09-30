@@ -1,6 +1,6 @@
 # Motion Studio for macOS and Windows
 
-A local browser dashboard for short video assets for DaVinci Resolve. **Abstract video** uses Wan MLX or LTX on Apple silicon; on Windows it uses a local ComfyUI API workflow and an NVIDIA GPU. **Data graphics** uses Ollama and Manim for precise charts and labeled diagrams on both systems. Model output is never executed as Python.
+A local browser dashboard for short video assets for DaVinci Resolve. **Abstract video** uses Wan MLX or LTX on Apple silicon; on Windows it uses a local ComfyUI API workflow and an NVIDIA GPU. **Data graphics** uses Ollama and Manim for precise charts and labeled diagrams on both systems. An optional Motion Canvas project export creates editable vector scenes. Model output is never executed as Python or TypeScript.
 
 ## Requirements for macOS
 
@@ -113,6 +113,12 @@ The workflow must produce an MP4, WebM, or MOV output. The app converts WebM/MOV
 3. For an overlay over footage in Resolve, check **Transparent background for Resolve (.mov)** before either render. This exports a ProRes 4444 MOV with an alpha channel. The browser shows a separate MP4 preview on a dark backing; download the MOV and place it above your footage in Resolve. A normal dark render remains an MP4 with a glow finish. You can switch background mode when rendering the same scene at a higher quality.
 4. Click **Download MOV · alpha** or **Download MP4**. Completed exports are also under `~/Movies/Nisha Motion Graphics/`.
 
+### Optional Motion Canvas project
+
+In **Data graphics**, describe an illustrated object or abstract shape (for example, "Draw a credit card tapping a terminal"), select a local Ollama model, and click **Create editable Motion Canvas project**. This independent path generates a bounded vector plan and downloads a ZIP containing a Motion Canvas 3.17.2 project. It does **not** require Manim, but it needs Node.js 20+ and `npm install` once after unzipping. Run `npm run serve` in the unzipped `motion-canvas-project` folder and open the local URL. The project's README explains how to preview, edit `src/scenes/generated.tsx`, and render a transparent PNG sequence in Motion Canvas for Resolve. The first npm install downloads the open-source packages. Directed Manim templates, face markers, and graphs are not exported to Motion Canvas.
+
+This is an **editable project handoff**, not automatic MP4/MOV generation in the Motion Studio dashboard. Motion Canvas' documented render workflow uses its browser editor; a dependable unattended export is not yet part of this integration. It shares the current vector planner's strengths and limitations. Motion Canvas cannot make a poorly planned object detailed merely by changing renderers.
+
 For the fixed four-stage overlay, begin the prompt with **“Financial stages arrow”**. This selects a directed Manim animation: coral Stage 1 through violet Stage 4 in a vertical stack, a right-pointing arrow on the left that moves down one card at a time, and a final uncertain position between Stages 2 and 3. It does not call Ollama; select **Transparent background for Resolve (.mov)** for a footage overlay. Use the 1080p / 24 fps preset for delivery.
 
 For a two-second white-word/red-line animation, use **“Awareness strikethrough”** or describe a red line crossing through the word awareness. This selects a directed Manim scene with only **AWARENESS** centered on screen: the white word and its soft spill light and drop shadow fade in for 0.35 seconds, wait 0.15 seconds, a glowing red line draws across it for exactly 1 second, and the result holds for 0.5 seconds. No other labels are added. These effects are rendered into both the transparent MOV overlay and the dark MP4.
@@ -123,7 +129,7 @@ The directed graph includes a small face-shaped marker placeholder. For an endin
 
 ## Current scope
 
-The Manim storyboard supports seven reusable visual relationships: bold statements, comparisons, flows, timelines, cycles, stacked layers, and networks. The vector planner supports bounded shapes and per-object animations from validated JSON; it does not execute model-authored Python or create photorealistic imagery. Use Abstract video for cinematic imagery. Transparent export applies to **Data graphics**; image-to-video backends still export opaque MP4. Direct Resolve project integration and free-form custom Manim code are not included.
+The Manim storyboard supports seven reusable visual relationships: bold statements, comparisons, flows, timelines, cycles, stacked layers, and networks. The vector planner supports bounded shapes and per-object animations from validated JSON; it does not execute model-authored code or create photorealistic imagery. Use Abstract video for cinematic imagery. Transparent MOV export applies to Manim **Data graphics**; Motion Canvas exports an editable project for manual alpha rendering; image-to-video backends still export opaque MP4. Direct Resolve project integration and free-form custom Manim code are not included.
 
 The server binds to `127.0.0.1` only. Ollama and Manim communicate locally; Windows ComfyUI also uses localhost. The app does not upload prompts or renders to a hosted service.
 

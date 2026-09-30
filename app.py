@@ -25,12 +25,13 @@ from typing import Any
 
 import abstract_video
 import local_video
+import motion_canvas_export
 import wan_video
 import windows_support
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.29.3"
+BUILD_ID = "2026.09.30.1"
 JOBS_DIR = windows_support.output_dir()
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -893,6 +894,34 @@ def render_job(job_id: str, prompt: str, model: str, preset: str,
                        log_url=f"/logs/{job_id}")
 
 
+def export_motion_canvas_job(job_id: str, prompt: str, model: str) -> None:
+    """Plan an illustration and package a Motion Canvas editor project, not a video."""
+    job_dir = JOBS_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    log_path = job_dir / "motion-studio.log"
+    log_path.write_text(f"Motion Canvas project job started.\nModel: {model}\n", encoding="utf-8")
+    try:
+        with LOCK:
+            JOBS[job_id].update(status="planning", message="Planning vector parts for Motion Canvas…")
+        plan = generate_illustration(prompt, model)
+        archive = job_dir / "motion-canvas.zip"
+        motion_canvas_export.write_project(plan, archive)
+        with log_path.open("a", encoding="utf-8") as log:
+            log.write(f"Plan source: {plan['_source']}\nProject: {archive}\n")
+        with LOCK:
+            JOBS[job_id].update(status="complete", kind="motion_canvas", format="zip",
+                                message="Editable Motion Canvas project ready. Open its README for setup and rendering.",
+                                download=f"/files/{job_id}/motion-canvas.zip", log_url=f"/logs/{job_id}",
+                                plan_source=plan["_source"])
+    except Exception as exc:
+        diagnostics = traceback.format_exc()
+        with log_path.open("a", encoding="utf-8") as log:
+            log.write("\nERROR\n" + diagnostics)
+        with LOCK:
+            JOBS[job_id].update(status="error", message=str(exc), details=diagnostics,
+                                log_url=f"/logs/{job_id}")
+
+
 def render_abstract_job(job_id: str, prompt: str, image_data: bytes,
                         workflow: dict[str, Any] | None, preset: str = "preview", backend: str = "ltx") -> None:
     job_dir = JOBS_DIR / job_id
@@ -1032,12 +1061,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200 if job else 404, job or {"error": "Job not found"})
         elif path.startswith("/files/"):
             parts = path.split("/")
-            if len(parts) != 4 or not re.fullmatch(r"[a-f0-9]{12}", parts[2]) or parts[3] not in {"animation.mp4", "animation.mov", "preview.mp4"}:
+            if len(parts) != 4 or not re.fullmatch(r"[a-f0-9]{12}", parts[2]) or parts[3] not in {"animation.mp4", "animation.mov", "preview.mp4", "motion-canvas.zip"}:
                 return self._json(404, {"error": "File not found"})
             file_path = JOBS_DIR / parts[2] / parts[3]
             if not file_path.exists():
                 return self._json(404, {"error": "File not found"})
-            self._send_video(file_path)
+            if parts[3] == "motion-canvas.zip":
+                self._send(200, file_path.read_bytes(), "application/zip")
+            else:
+                self._send_video(file_path)
         elif path.startswith("/logs/"):
             job_id = path.rsplit("/", 1)[-1]
             if not re.fullmatch(r"[a-f0-9]{12}", job_id):
@@ -1052,6 +1084,28 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self._local_host():
             return self._json(403, {"error": "Open Motion Studio at 127.0.0.1."})
+        if self.path == "/api/motion-canvas/jobs":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 12000:
+                    return self._json(413, {"error": "Request is too large or empty."})
+                body = json.loads(self.rfile.read(length))
+                if not isinstance(body, dict):
+                    return self._json(400, {"error": "Invalid request body."})
+                prompt, model = str(body.get("prompt", "")).strip(), str(body.get("model", "")).strip()
+                if not prompt or len(prompt) > MAX_PROMPT or not visual_illustration_request(prompt):
+                    return self._json(400, {"error": "Describe a vector object or abstract shape to animate."})
+                if model not in ollama_models():
+                    return self._json(400, {"error": "Choose a model shown in the dashboard. Confirm Ollama is running."})
+                job_id = uuid.uuid4().hex[:12]
+                with LOCK:
+                    JOBS[job_id] = {"id": job_id, "kind": "motion_canvas", "status": "queued",
+                                    "message": "Queued for Motion Canvas project export…", "created": time.time()}
+                threading.Thread(target=export_motion_canvas_job,
+                                 args=(job_id, prompt, model), daemon=True).start()
+                return self._json(202, {"id": job_id})
+            except (ValueError, json.JSONDecodeError):
+                return self._json(400, {"error": "Invalid request body."})
         if self.path == "/api/comfy/latest":
             origin = self.headers.get("Origin")
             if origin and origin != "http://" + self.headers["Host"]:
