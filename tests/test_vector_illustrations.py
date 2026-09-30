@@ -87,6 +87,56 @@ class VectorIllustrationTest(unittest.TestCase):
             app.generate_illustration("Draw a jar and fade a coin. Show $0.", "qwen3.6:27b")
         self.assertEqual(call.call_count, 2)
 
+    def test_empty_model_text_is_discarded_without_losing_requested_labels(self):
+        buffer_plan = {"beats": [
+            {"duration": 0.7, "items": [
+                {"type": "path", "id": "buffer", "points": [[-1, 0], [0, -0.5], [1, 0]]},
+                {"type": "rectangle", "id": "deposit", "position": [-1, 0], "size": [1, 0.4]},
+                {"type": "ring", "position": [1, 0], "size": [0.5, 0.5]},
+                {"type": "text", "id": "unused", "text": "  "},
+                {"type": "number", "text": "$500"}]},
+            {"duration": 0.7, "items": [
+                {"type": "text", "text": "1 MONTH OF LIVING EXPENSES"}],
+             "actions": [{"target": "unused", "type": "fade_out"},
+                         {"target": "deposit", "type": "move_to", "position": [0, 0]}]},
+        ]}
+        prompt = ("Draw a cash buffer. Show $500 contributions and label the goal "
+                  "1 month of living expenses. Three $500 deposits must not imply "
+                  "that $1,500 covers everyone.")
+        with patch.object(app, "local_json", return_value={"response": json.dumps(buffer_plan)}) as call:
+            plan = app.generate_illustration(prompt, "qwen3.6:27b")
+        self.assertEqual(call.call_count, 1)
+        self.assertFalse(any(item.get("id") == "unused" for beat in plan["beats"] for item in beat["items"]))
+        self.assertEqual(plan["beats"][1]["actions"],
+                         [{"target": "deposit", "type": "move_to", "position": [0.0, 0.0]}])
+        self.assertEqual(app.requested_illustration_amounts(prompt), {"$500"})
+
+    def test_required_goal_or_prohibited_amount_cannot_be_dropped(self):
+        plan = json.loads(json.dumps(SAVINGS_PLAN))
+        prompt = "Draw a jar; show $0 and label 1 MONTH OF LIVING EXPENSES. Do not show $1,500."
+        with patch.object(app, "local_json", return_value={"response": json.dumps(plan)}):
+            with self.assertRaisesRegex(RuntimeError, "goal label"):
+                app.generate_illustration(prompt, "qwen3.6:27b")
+        plan["beats"][1]["items"].append({"type": "text", "text": "1 MONTH OF LIVING EXPENSES"})
+        plan["beats"][1]["items"].append({"type": "number", "text": "$1,500"})
+        with patch.object(app, "local_json", return_value={"response": json.dumps(plan)}):
+            with self.assertRaisesRegex(RuntimeError, "explicitly excluded"):
+                app.generate_illustration(prompt, "qwen3.6:27b")
+
+    def test_missing_requested_labels_fill_empty_number_and_text_slots(self):
+        plan = json.loads(json.dumps(SAVINGS_PLAN))
+        plan["beats"][1]["items"] = [
+            {"type": "number", "text": "", "position": [-1, 0]},
+            {"type": "text", "text": "", "position": [1, 0]},
+        ]
+        prompt = ("Draw a cash buffer. Show $500 contributions and label the goal "
+                  "1 month of living expenses. Do not show $1,500.")
+        with patch.object(app, "local_json", return_value={"response": json.dumps(plan)}) as call:
+            result = app.generate_illustration(prompt, "qwen3.6:27b")
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual([item["text"] for item in result["beats"][1]["items"]],
+                         ["$500", "1 MONTH OF LIVING EXPENSES"])
+
 
 if __name__ == "__main__":
     unittest.main()
