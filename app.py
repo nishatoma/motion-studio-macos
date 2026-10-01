@@ -31,7 +31,7 @@ import windows_support
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.09.30.3"
+BUILD_ID = "2026.10.01.1"
 JOBS_DIR = windows_support.output_dir()
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -259,6 +259,8 @@ def validate_spec(spec: Any) -> dict[str, Any]:
     for beat_index, beat in enumerate(spec["beats"], start=1):
         if not isinstance(beat, dict):
             raise ValueError("Each beat must be an object.")
+        if beat.get("clear_before"):
+            existing_ids.clear()
         duration = max(0.4, min(8.0, float(beat.get("duration", 2.0))))
         items = beat.get("items", [])
         if not isinstance(items, list) or len(items) > 24:
@@ -289,7 +291,7 @@ def validate_spec(spec: Any) -> dict[str, Any]:
             item_id = str(item.get("id", "")).strip()
             if item_id:
                 if not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_]{0,31}", item_id) or item_id in existing_ids or item_id in new_ids:
-                    raise ValueError("Object ids must be unique short names beginning with a letter.")
+                    raise ValueError(f"Beat {beat_index}: object id {item_id!r} must be a unique short name beginning with a letter.")
                 out["id"] = item_id
                 new_ids.add(item_id)
             if kind in {"text", "title", "number"}:
@@ -353,11 +355,6 @@ def validate_spec(spec: Any) -> dict[str, Any]:
             safe_actions.append(safe_action)
         existing_ids.update(new_ids)
         existing_ids.difference_update(action["target"] for action in safe_actions if action["type"] == "fade_out")
-        if beat.get("clear_before"):
-            # A clear happens before this beat's additions, so earlier ids are gone.
-            if safe_actions:
-                raise ValueError("Actions cannot target objects cleared at the start of the beat.")
-            existing_ids = set(new_ids)
         clean["beats"].append({"duration": duration, "clear_before": bool(beat.get("clear_before", False)),
                                "items": safe_items, "actions": safe_actions})
     return clean
@@ -466,6 +463,63 @@ def repair_illustration_text(spec: Any, prompt: str) -> Any:
     return spec
 
 
+def repair_illustration_ids(spec: Any) -> Any:
+    """Resolve model-authored names without changing the strict plan validator."""
+    if not isinstance(spec, dict) or not isinstance(spec.get("beats"), list):
+        return spec
+    used: set[str] = set()
+    active: dict[str, str] = {}
+    last_items: dict[str, dict[str, Any]] = {}
+    for beat in spec["beats"]:
+        if not isinstance(beat, dict) or not isinstance(beat.get("items", []), list):
+            continue
+        if beat.get("clear_before"):
+            active.clear()
+            last_items.clear()
+        items = []
+        for item in beat.get("items", []):
+            if not isinstance(item, dict):
+                items.append(item)
+                continue
+            raw = item.get("id")
+            raw = str(raw).strip() if raw is not None else ""
+            if not raw:
+                item.pop("id", None)
+            else:
+                # An identical redraw would stack an invisible duplicate on the
+                # existing object. Keep the original object and its action ID.
+                if raw in active and last_items.get(raw) == item:
+                    continue
+                base = re.sub(r"[^a-zA-Z0-9_]", "_", raw).strip("_")[:32]
+                if not base or not base[0].isalpha():
+                    base = "part_" + base[:27]
+                base = base[:32]
+                name = base
+                suffix = 2
+                while name in used:
+                    tail = f"_{suffix}"
+                    name = base[:32 - len(tail)] + tail
+                    suffix += 1
+                used.add(name)
+                active[raw] = name
+                last_items[raw] = dict(item)
+                item["id"] = name
+            items.append(item)
+        beat["items"] = items
+        if isinstance(beat.get("actions", []), list):
+            for action in beat.get("actions", []):
+                if isinstance(action, dict) and isinstance(action.get("target"), str):
+                    raw_target = action["target"].strip()
+                    action["target"] = active.get(raw_target, raw_target)
+            for action in beat.get("actions", []):
+                if isinstance(action, dict) and action.get("type") == "fade_out":
+                    active = {raw: name for raw, name in active.items()
+                              if name != action.get("target")}
+                    last_items = {raw: item for raw, item in last_items.items()
+                                  if raw in active}
+    return spec
+
+
 def repair_illustration_actions(spec: Any) -> Any:
     """Give newly drawn parts and sequential actions their own animation beats."""
     if not isinstance(spec, dict) or not isinstance(spec.get("beats"), list):
@@ -479,11 +533,10 @@ def repair_illustration_actions(spec: Any) -> Any:
         new_ids = {str(item.get("id")) for item in beat.get("items", [])
                    if isinstance(item, dict) and item.get("id")}
         actions = beat.get("actions", [])
-        # An unknown target or a clear of an earlier target needs a new plan,
-        # not an invented ID or a silently changed clear operation.
+        active_ids = set() if beat.get("clear_before") else existing_ids
+        # An unknown target needs a new plan, not an invented ID.
         if any(not isinstance(action, dict) or
-               action.get("target") not in existing_ids | new_ids or
-               (beat.get("clear_before") and action.get("target") in existing_ids)
+               action.get("target") not in active_ids | new_ids
                for action in actions):
             repaired.append(beat)
         else:
@@ -530,6 +583,7 @@ def generate_illustration(prompt: str, model: str) -> dict[str, Any]:
             if response.get("done_reason") == "length":
                 raise ValueError("Ollama reached its output limit before finishing the JSON; shorten the plan.")
             candidate = repair_illustration_text(json.loads(response.get("response", "")), prompt)
+            candidate = repair_illustration_ids(candidate)
             plan = validate_spec(repair_illustration_actions(candidate))
             illustration_items = [item for beat in plan["beats"] for item in beat["items"]]
             vector_items = [item for item in illustration_items if item["type"] in

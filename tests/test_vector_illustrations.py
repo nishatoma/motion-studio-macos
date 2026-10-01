@@ -163,6 +163,45 @@ class VectorIllustrationTest(unittest.TestCase):
                 app.generate_illustration("Draw a jar and fade a coin. Show $0.", "qwen3.6:27b")
         self.assertEqual(call.call_count, 3)
 
+    def test_invalid_and_duplicate_ids_repair_action_targets(self):
+        plan = {"beats": [
+            {"duration": 1.2, "items": [
+                {"type": "path", "id": "1 coin", "points": [[-1, 0], [0, 1], [1, 0]]},
+                {"type": "ellipse", "id": "1 coin", "position": [1, 0], "size": [1, 1]},
+                {"type": "ring", "id": "outer ring", "size": [1.5, 1.5]}],
+             "actions": [{"target": "1 coin", "type": "move_to", "position": [2, 0]}]},
+            {"duration": 0.8, "items": [],
+             "actions": [{"target": "outer ring", "type": "fade_out"}]},
+        ]}
+        with patch.object(app, "local_json", return_value={"response": json.dumps(plan)}) as call:
+            result = app.generate_illustration("Draw a coin and move it; fade the ring.", "qwen3.6:27b")
+        self.assertEqual(call.call_count, 1)
+        ids = [item["id"] for beat in result["beats"] for item in beat["items"]]
+        self.assertEqual(ids, ["part_1_coin", "part_1_coin_2", "outer_ring"])
+        self.assertEqual(result["beats"][1]["actions"][0]["target"], "part_1_coin_2")
+        self.assertEqual(result["beats"][2]["actions"][0]["target"], "outer_ring")
+
+    def test_identical_redraw_reuses_object_and_clear_can_reuse_id(self):
+        plan = json.loads(json.dumps(SAVINGS_PLAN))
+        plan["beats"][1]["items"].append(json.loads(json.dumps(plan["beats"][0]["items"][1])))
+        with patch.object(app, "local_json", return_value={"response": json.dumps(plan)}):
+            result = app.generate_illustration("Draw a jar and fade a coin. Show $0.", "qwen3.6:27b")
+        self.assertEqual([item.get("id") for item in result["beats"][1]["items"]], [None])
+        self.assertEqual(result["beats"][1]["actions"][0]["target"], "coin")
+        app.validate_spec({"beats": [
+            {"items": [{"type": "circle", "id": "coin"}]},
+            {"clear_before": True, "items": [{"type": "ring", "id": "coin"}]},
+        ]})
+
+    def test_changed_redraw_gets_new_id_and_action_moves_new_object(self):
+        plan = json.loads(json.dumps(SAVINGS_PLAN))
+        plan["beats"][1]["items"].append({"type": "ellipse", "id": "coin", "position": [2, 0], "size": [0.6, 0.4]})
+        plan["beats"][1]["actions"] = [{"target": "coin", "type": "shift", "position": [1, 0]}]
+        with patch.object(app, "local_json", return_value={"response": json.dumps(plan)}):
+            result = app.generate_illustration("Draw a jar and shift a coin. Show $0.", "qwen3.6:27b")
+        self.assertEqual(result["beats"][1]["items"][1]["id"], "coin_2")
+        self.assertEqual(result["beats"][2]["actions"][0]["target"], "coin_2")
+
 
 if __name__ == "__main__":
     unittest.main()
