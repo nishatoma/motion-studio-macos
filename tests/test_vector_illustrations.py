@@ -202,6 +202,39 @@ class VectorIllustrationTest(unittest.TestCase):
         self.assertEqual(result["beats"][1]["items"][1]["id"], "coin_2")
         self.assertEqual(result["beats"][2]["actions"][0]["target"], "coin_2")
 
+    def test_amount_embedded_in_label_satisfies_request_without_duplicate(self):
+        plan = json.loads(json.dumps(SAVINGS_PLAN))
+        plan["beats"][1]["items"][0]["text"] = "Cash remaining: $0"
+        with patch.object(app, "local_json", return_value={"response": json.dumps(plan)}) as call:
+            result = app.generate_illustration("Draw a jar and fade a coin. Show $0.", "qwen3.6:27b")
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual([item["text"] for beat in result["beats"] for item in beat["items"]
+                          if item["type"] == "number"], ["Cash remaining: $0"])
+
+    def test_missing_amount_gets_visible_label_and_excluded_amount_stays_out(self):
+        plan = json.loads(json.dumps(SAVINGS_PLAN))
+        plan["beats"][1]["items"] = []
+        prompt = "Draw a jar and fade a coin. Show $0, then $500. Do not show $1,500."
+        with patch.object(app, "local_json", return_value={"response": json.dumps(plan)}) as call:
+            result = app.generate_illustration(prompt, "qwen3.6:27b")
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual([[item["text"] for item in beat["items"] if item["type"] == "number"]
+                          for beat in result["beats"]], [["$0"], ["$500"]])
+        self.assertTrue(all(-6.5 <= item["position"][0] <= 6.5 and
+                            -3.4 <= item["position"][1] <= 3.4
+                            for beat in result["beats"] for item in beat["items"]
+                            if item["type"] == "number"))
+
+    def test_amounts_in_prose_are_checked_individually(self):
+        plan = json.loads(json.dumps(SAVINGS_PLAN))
+        plan["beats"][1]["items"][0]["text"] = "Reserve $0, not $1,500"
+        with patch.object(app, "local_json", return_value={"response": json.dumps(plan)}):
+            with self.assertRaisesRegex(RuntimeError, "explicitly excluded"):
+                app.generate_illustration("Draw a jar and fade a coin. Show $0. Do not show $1,500.",
+                                          "qwen3.6:27b")
+        self.assertEqual(app.amount_labels("$500, then $500K and $1,500."),
+                         ["$500", "$500K", "$1,500"])
+
 
 if __name__ == "__main__":
     unittest.main()
