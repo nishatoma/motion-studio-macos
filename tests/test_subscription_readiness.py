@@ -36,6 +36,42 @@ class SubscriptionTest(unittest.TestCase):
     def test_codex_default_model_needs_no_api_key(self):
         with patch.dict(os.environ,{'CODEX_MODEL':''}):settings=cm.settings({'prompt':'Create a title','provider':'codex','model':''})
         self.assertEqual(settings['model'],'');self.assertEqual(settings['provider'],'codex')
+    def test_selected_sol_model_is_forwarded_without_substitution(self):
+        def spawn(args,**kwargs):
+            self.assertEqual(args[args.index('--model')+1],'gpt-5.6-sol')
+            Path(args[args.index('-o')+1]).write_text(json.dumps({'source':'tsx','design_notes':'test','review_frames':[]}))
+            p=MagicMock();p.poll.return_value=0;p.returncode=0;return p
+        with patch.object(self.provider,'status',return_value={'signed_in':True}),patch('codex_provider.command',return_value=['codex']),patch('codex_provider.subprocess.Popen',side_effect=spawn):
+            self.provider.generate('gpt-5.6-sol','instructions','prompt',cm.SCENE_SCHEMA)
+    def test_sign_in_launch_failure_is_actionable(self):
+        with patch('codex_provider.command',return_value=['codex']),patch('codex_provider.subprocess.Popen',side_effect=OSError('missing executable')),self.assertRaisesRegex(ValueError,'restart Motion Studio'):
+            self.provider.sign_in()
+        self.assertEqual(self.provider.login_status()['status'],'error')
+    def test_models_presets_account_cache_and_unavailable_catalog(self):
+        with patch.object(self.provider,'status',return_value={'signed_in':False}),patch.object(self.provider,'_list_models') as discover:
+            catalog=self.provider.models();self.assertEqual(catalog['source'],'presets');self.assertIn('gpt-5.6-sol',[m['id'] for m in catalog['models']]);discover.assert_not_called()
+        models=[{'id':'account-model','name':'My account model'}]
+        with patch.object(self.provider,'status',return_value={'signed_in':True}),patch.object(self.provider,'_list_models',return_value=models) as discover:
+            self.assertEqual(self.provider.models()['models'],models);self.provider.models();discover.assert_called_once()
+        self.provider.model_cache=None
+        with patch.object(self.provider,'status',return_value={'signed_in':True}),patch.object(self.provider,'_list_models',side_effect=ValueError('unavailable')):
+            catalog=self.provider.models();self.assertEqual(catalog['source'],'presets');self.assertIn('availability is checked',catalog['message'])
+    def test_model_discovery_uses_stdio_private_profile_and_pagination(self):
+        p=MagicMock();p.stdin=io.StringIO();p.poll.return_value=None
+        data=[{'id':1,'result':{}},{'id':2,'result':{'data':[{'id':'record-1','model':'gpt-5.6-sol','displayName':'GPT-5.6 Sol'},{'model':'hidden','hidden':True},{'model':'invalid model'}],'nextCursor':'page-2'}},{'id':3,'result':{'data':[{'model':'gpt-6.1-sol','displayName':'GPT-6.1 Sol'},{'model':'gpt-5.6-sol','displayName':'GPT-5.6 Sol'}],'nextCursor':None}}]
+        p.stdout=io.StringIO(''.join(json.dumps(m)+'\n' for m in data))
+        requests=[];p.stdin.close=lambda:requests.extend(json.loads(line) for line in p.stdin.getvalue().splitlines())
+        with patch('codex_provider.command',return_value=['codex']),patch('codex_provider.subprocess.Popen',return_value=p) as spawn:
+            self.assertEqual([m['id'] for m in self.provider._list_models()],['gpt-5.6-sol','gpt-6.1-sol'])
+        args=spawn.call_args.args[0];self.assertEqual(args[:3],['codex','app-server','--stdio']);self.assertNotIn('--listen',args)
+        self.assertEqual(spawn.call_args.kwargs['env']['CODEX_HOME'],str(self.provider.home));self.assertNotIn('OPENAI_API_KEY',spawn.call_args.kwargs['env'])
+        self.assertEqual([r['method'] for r in requests],['initialize','initialized','model/list','model/list']);self.assertEqual(requests[-1]['params']['cursor'],'page-2');p.terminate.assert_called_once()
+    def test_model_discovery_protocol_error_cleans_up_process(self):
+        p=MagicMock();p.stdin=io.StringIO();p.stdout=io.StringIO('{"id":1,"error":{"message":"failed"}}\n');p.poll.return_value=None
+        p.wait.side_effect=[subprocess.TimeoutExpired('codex',5),0]
+        with patch('codex_provider.command',return_value=['codex']),patch('codex_provider.subprocess.Popen',return_value=p),self.assertRaisesRegex(ValueError,'metadata request failed'):
+            self.provider._list_models()
+        p.terminate.assert_called_once();p.kill.assert_called_once()
     def test_codex_review_uses_same_subscription_not_responses_api(self):
         studio=cm.Studio(Path(self.tmp.name));id='a'*12;p=studio.projects/id;p.mkdir();(p/'frames').mkdir();studio.events[id]=threading.Event();(p/'job.json').write_text(json.dumps({'transparent':False}));Image.new('RGB',(20,20)).save(p/'frames/1.png')
         config={'provider':'codex','model':'','prompt':'title','style_direction':'dark','beats':[]}

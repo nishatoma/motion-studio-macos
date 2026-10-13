@@ -10,6 +10,8 @@ Generated scenes render only inside a restricted offline Docker worker; there is
 
 Read [Code Motion setup, architecture, Resolve workflow and example prompts](docs/CODE_MOTION.md) and [validation results and remaining checks](docs/VALIDATION.md) before using this feature.
 
+The **Generation model** dropdown includes GPT-5.6 Sol and other presets, loads the signed-in Codex model catalog, and supports custom model IDs. If sign-in says **Not found** after updating, close the running Motion Studio command window, relaunch `start_windows.bat` (Windows) or `start.command` (macOS), then reload the dashboard. Refreshing the browser alone does not reload Python. The dashboard now detects that version mismatch; this does not require repeating Windows setup.
+
 
 A local browser dashboard for short video assets for DaVinci Resolve. **Abstract video** uses Wan MLX or LTX on Apple silicon; on Windows it uses a local ComfyUI API workflow and an NVIDIA GPU. **Data graphics** uses Ollama and Manim for precise charts and labeled diagrams on both systems. An optional Motion Canvas project export creates editable vector scenes. Model output is never executed as Python or TypeScript.
 

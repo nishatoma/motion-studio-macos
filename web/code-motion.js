@@ -1,32 +1,38 @@
 /* Extends the existing dashboard; generated code is never evaluated in this page. */
 (() => {
-  let token='', currentJob=null, previewJob=null, assets=[], audio=null, cmHealth=null;
+  let token='', currentJob=null, previewJob=null, assets=[], audio=null, cmHealth=null, compatible=false, modelCatalog=null;
+  const expectedApi=Number(document.querySelector('meta[name="motion-studio-api-version"]').content);
+  const restartMessage='The dashboard was updated, but the running Motion Studio server is older. Close its command window, restart start_windows.bat (or start.command), then reload this page.';
   const controls=['cmGenerate','cmRevise','cmRegenerate','cmExport'];
   async function request(url,body,headers={}) {
     const response=await fetch(url,{method:'POST',headers:{'X-Code-Motion-Token':token,'Content-Type':'application/json',...headers},body:body instanceof File?body:JSON.stringify(body)});
-    const data=await response.json();if(!response.ok)throw Error(data.error||'Code Motion request failed');return data;
+    const data=await response.json();if(!response.ok)throw Error(response.status===404 && url.includes('/account/')?restartMessage:data.error||'Code Motion request failed');return data;
   }
   async function refresh() {
     const r=await fetch('/api/code-motion/health');if(!r.ok)throw Error('Code Motion backend unavailable');cmHealth=await r.json();token=cmHealth.token;
+    compatible=cmHealth.api_version>=expectedApi && ['subscription-login','model-picker'].every(c=>cmHealth.capabilities?.includes(c));
+    $('cmSignIn').disabled=!compatible;
+    controls.forEach(id=>$(id).disabled=!compatible||busy);
+    if(!compatible){$('cmAccountStatus').textContent=restartMessage;$('cmReadiness').textContent=restartMessage;showStatus(restartMessage,'err');return false}
     $('cmReadiness').textContent=cmHealth.message;
     $('cmDiagnostics').textContent=Object.entries(cmHealth.checks||{}).map(([name,ready])=>`${ready?'✓':'✗'} ${name.replaceAll('_',' ')}`).join('\n');
     $('cmAccountStatus').textContent=cmHealth.subscription?.message||'Sign in with ChatGPT.';
     $('cmSignIn').disabled=cmHealth.login?.status==='running';
-    if(!$('cmModel').value)$('cmModel').value=$('cmProvider').value==='codex'?(cmHealth.codex_model||''):$('cmProvider').value==='openai'?cmHealth.model:(health?.models?.[0]||'');
     providerHint();
+    await loadModels();
     const old=$('cmStyle').value;$('cmStyle').replaceChildren();
     for(const [id,style] of Object.entries(cmHealth.styles)) {const option=document.createElement('option');option.value=id;option.textContent=style.name;$('cmStyle').append(option)}
     if([...$('cmStyle').options].some(o=>o.value===old))$('cmStyle').value=old;
-    await history();
+    await history();return true;
   }
   async function history() {
     const r=await fetch('/api/code-motion/jobs'),data=await r.json();const select=$('cmHistory'),old=select.value;select.replaceChildren(new Option('Choose a saved job',''));
     for(const job of data.jobs||[])select.append(new Option(`${new Date(job.created*1000).toLocaleString()} · ${job.action} · ${job.status}`,job.id));select.value=old;
   }
   function input() {
-    return {auto_metadata:$('cmAutoMetadata').checked,prompt:$('cmPrompt').value.trim(),provider:$('cmProvider').value,model:$('cmModel').value.trim(),duration:Number($('cmDuration').value),fps:Number($('cmFps').value),resolution:$('cmResolution').value,aspect:$('cmAspect').value,style:$('cmStyle').value,transparent:$('cmTransparent').checked,auto_review:$('cmAutoReview').checked,max_revisions:Number($('cmAttempts').value),beats:JSON.parse($('cmBeats').value||'[]'),assets:assets.map(a=>a.id),audio:audio?.id||null};
+    return {auto_metadata:$('cmAutoMetadata').checked,prompt:$('cmPrompt').value.trim(),provider:$('cmProvider').value,model:selectedModel(),duration:Number($('cmDuration').value),fps:Number($('cmFps').value),resolution:$('cmResolution').value,aspect:$('cmAspect').value,style:$('cmStyle').value,transparent:$('cmTransparent').checked,auto_review:$('cmAutoReview').checked,max_revisions:Number($('cmAttempts').value),beats:JSON.parse($('cmBeats').value||'[]'),assets:assets.map(a=>a.id),audio:audio?.id||null};
   }
-  function locked(value){setBusy(value);controls.forEach(id=>$(id).disabled=value);$('cmAssets').disabled=value;$('cmAudio').disabled=value;$('cmCancel').hidden=!value;$('cmProgress').hidden=!value;}
+  function locked(value){setBusy(value);controls.forEach(id=>$(id).disabled=value||!compatible);$('cmAssets').disabled=value;$('cmAudio').disabled=value;$('cmCancel').hidden=!value;$('cmProgress').hidden=!value;}
   async function upload(file){return request('/api/code-motion/assets',file,{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(file.name)})}
   $('cmAssets').addEventListener('change',async()=>{
     if(busy)return;locked(true);showStatus('Validating reference assets…');
@@ -38,25 +44,45 @@
   function providerHint(){
     const provider=$('cmProvider').value,ollama=provider==='ollama',codex=provider==='codex';
     $('cmAccount').hidden=!codex;
-    $('cmModel').placeholder=codex?'Automatic · Codex default':ollama?'Choose an installed Ollama model':'Set OPENAI_MODEL or enter model';
     $('cmAutoReview').disabled=ollama;if(ollama)$('cmAutoReview').checked=false;
     $('cmProviderHint').textContent=codex?'Uses your ChatGPT subscription through Codex. No API key; subscription limits apply. References and Auto Review use the same account. Sign in once using the button above.':ollama?'Ollama runs locally. Choose an installed coding model; image references require vision support.':'OpenAI API requires OPENAI_API_KEY on the backend and is billed separately from ChatGPT. References and review frames are sent to OpenAI.';
   }
+  function selectedModel(){return $('cmModel').value==='__custom'?$('cmCustomModel').value.trim():$('cmModel').value}
+  function customField(){ $('cmCustomModel').hidden=$('cmModel').value!=='__custom'; }
+  function populateModels(preferred=null){
+    const provider=$('cmProvider').value;
+    const previous=preferred===null?selectedModel():preferred;
+    const models=provider==='ollama'?(health?.models||[]).map(id=>({id,name:id})):(modelCatalog?.models||[]);
+    $('cmModel').replaceChildren(new Option(provider==='codex'?'Automatic · Codex default':'Choose a model',''));
+    for(const model of models)$('cmModel').append(new Option(model.name,model.id));
+    $('cmModel').append(new Option('Custom model ID…','__custom'));
+    if(previous && !models.some(m=>m.id===previous)){$('cmCustomModel').value=previous;$('cmModel').value='__custom'}else $('cmModel').value=previous||'';
+    $('cmModelHint').textContent=provider==='ollama'?'Installed Ollama models.':provider==='codex'?(modelCatalog?.message||'Model availability depends on your account.'):'Presets are shown; API model availability may differ. Use Custom model ID for other API models.';
+    customField();
+  }
+  async function loadModels(){
+    const r=await fetch('/api/code-motion/models');
+    if(!r.ok)throw Error(r.status===404?restartMessage:'Could not load model choices.');
+    modelCatalog=await r.json();
+    populateModels(selectedModel()||($('cmProvider').value==='codex'?cmHealth?.codex_model:$('cmProvider').value==='openai'?cmHealth?.model:null)||'');
+  }
+  $('cmModel').addEventListener('change',customField);
   $('cmProvider').addEventListener('change',()=>{
-    const provider=$('cmProvider').value;$('cmModel').value=provider==='ollama'?(health?.models?.[0]||''):provider==='codex'?(cmHealth?.codex_model||''):(cmHealth?.model||'');$('cmModels').replaceChildren();
-    if(provider==='ollama')for(const model of health?.models||[])$('cmModels').append(new Option(model,model));providerHint();
+    const provider=$('cmProvider').value;
+    populateModels(provider==='ollama'?(health?.models?.[0]||''):provider==='codex'?(cmHealth?.codex_model||''):(cmHealth?.model||''));providerHint();
   });
-  $('cmRefresh').addEventListener('click',async()=>{try{await refresh();showStatus(cmHealth.message,cmHealth.ready?'ok':'')}catch(e){showStatus(e.message,'err')}});
+  $('cmRefresh').addEventListener('click',async()=>{try{if(await refresh())showStatus(cmHealth.message,cmHealth.ready?'ok':'')}catch(e){showStatus(e.message,'err')}});
   $('cmSignIn').addEventListener('click',async()=>{
+    if(!compatible){$('cmAccountStatus').textContent=restartMessage;return}
     $('cmSignIn').disabled=true;
     try{
       const start=await request('/api/code-motion/account/login',{});$('cmAccountStatus').textContent=start.message;
-      while(true){const r=await fetch('/api/code-motion/account'),account=await r.json();$('cmAccountStatus').textContent=account.message;if(account.status!=='running')break;await new Promise(resolve=>setTimeout(resolve,1500))}
+      while(true){const r=await fetch('/api/code-motion/account');if(!r.ok)throw Error(r.status===404?restartMessage:'Could not check sign-in status.');const account=await r.json();$('cmAccountStatus').textContent=account.message;if(account.status!=='running')break;await new Promise(resolve=>setTimeout(resolve,1500))}
       await refresh();
-    }catch(e){$('cmAccountStatus').textContent=e.message}finally{$('cmSignIn').disabled=false}
+    }catch(e){$('cmAccountStatus').textContent=e.message}finally{$('cmSignIn').disabled=!compatible}
   });
   $('cmSetup').addEventListener('click',async()=>{
-    if(busy)return;locked(true);$('cmSetup').disabled=true;
+    if(!compatible){showStatus(restartMessage,'err');return}if(busy)return;locked(true);$('cmSetup').disabled=true;
     try{await request('/api/code-motion/setup',{});while(true){const r=await fetch('/api/code-motion/setup'),setup=await r.json();$('cmDiagnostics').textContent=setup.log||setup.message;showStatus(setup.message,setup.status==='error'?'err':'');if(setup.status!=='running')break;await new Promise(resolve=>setTimeout(resolve,1500))}await refresh()}
     catch(e){showStatus(e.message,'err')}finally{$('cmSetup').disabled=false;locked(false)}
   });
@@ -93,10 +119,10 @@
   }
   $('cmGenerate').addEventListener('click',()=>{try{run('/api/code-motion/jobs',input())}catch(e){showStatus(e.message,'err')}});
   $('cmRegenerate').addEventListener('click',()=>{try{run('/api/code-motion/jobs',input())}catch(e){showStatus(e.message,'err')}});
-  $('cmRevise').addEventListener('click',()=>{if(!previewJob)return;const prompt=$('cmRevision').value.trim();if(!prompt){showStatus('Describe the revision.','err');return}run(`/api/code-motion/jobs/${previewJob}/revise`,{prompt,auto_review:$('cmAutoReview').checked,max_revisions:Number($('cmAttempts').value)})});
+  $('cmRevise').addEventListener('click',()=>{if(!previewJob)return;const prompt=$('cmRevision').value.trim();if(!prompt){showStatus('Describe the revision.','err');return}run(`/api/code-motion/jobs/${previewJob}/revise`,{prompt,provider:$('cmProvider').value,model:selectedModel(),auto_review:$('cmAutoReview').checked,max_revisions:Number($('cmAttempts').value)})});
   $('cmExport').addEventListener('click',()=>{if(!previewJob)return;if(!$('cmApproved').checked){showStatus('Review the preview and tick approval before exporting.','err');return}run(`/api/code-motion/jobs/${previewJob}/export`,{format:$('cmFormat').value,approved:true})});
   $('cmCancel').addEventListener('click',async()=>{if(!currentJob)return;try{await request(`/api/code-motion/jobs/${currentJob}/cancel`,{});showStatus('Cancellation requested.')}catch(e){showStatus(e.message,'err')}});
   $('cmSaveStyle').addEventListener('click',async()=>{try{const result=await request('/api/code-motion/styles',{name:$('cmStyleName').value,direction:$('cmStyleDirection').value});await refresh();$('cmStyle').value=result.id;showStatus('Style saved.','ok')}catch(e){showStatus(e.message,'err')}});
   $('cmHistory').addEventListener('change',async()=>{if(busy||!$('cmHistory').value)return;try{const r=await fetch('/api/code-motion/jobs/'+$('cmHistory').value),job=await r.json();await display(job)}catch(e){showStatus(e.message,'err')}});
-  refresh().catch(e=>{$('cmReadiness').textContent=e.message});
+  refresh().catch(e=>{$('cmReadiness').textContent=e.message;$('cmAccountStatus').textContent=e.message});
 })();

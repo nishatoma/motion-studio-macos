@@ -114,6 +114,34 @@ class CodeMotionTest(unittest.TestCase):
         self.assertNotIn('secret',str(error.exception))
 
 class CodeMotionHTTPTest(unittest.TestCase):
+    def test_sign_in_routes_version_handshake_and_model_catalog(self):
+        with tempfile.TemporaryDirectory() as tmp,patch.object(app,'CODE_STUDIO',cm.Studio(Path(tmp))):
+            studio=app.CODE_STUDIO;subscription=studio.subscription
+            server=ThreadingHTTPServer(('127.0.0.1',0),app.Handler);threading.Thread(target=server.serve_forever,daemon=True).start()
+            base=f'http://127.0.0.1:{server.server_port}'
+            headers={'X-Code-Motion-Token':app.CODE_MOTION_TOKEN,'Content-Type':'application/json'}
+            try:
+                with patch.object(studio,'health',return_value={'ready':False}),urllib.request.urlopen(base+'/api/code-motion/health') as response:
+                    health=json.load(response);self.assertEqual(health['api_version'],app.CODE_MOTION_API_VERSION);self.assertIn('subscription-login',health['capabilities']);self.assertIn('model-picker',health['capabilities'])
+                for path in ['/account/login','/account/login/?client=dashboard','/auth/login','/login']:
+                    with self.subTest(path=path),patch.object(subscription,'sign_in',return_value={'status':'running','message':'Finish sign-in in browser'}) as login:
+                        with urllib.request.urlopen(urllib.request.Request(base+'/api/code-motion'+path,data=b'{}',headers=headers)) as response:
+                            self.assertEqual(response.status,202);self.assertEqual(json.load(response)['status'],'running')
+                        login.assert_called_once()
+                with patch.object(subscription,'sign_in') as login:
+                    with self.assertRaises(urllib.error.HTTPError) as error:urllib.request.urlopen(urllib.request.Request(base+'/api/code-motion/account/login',data=b'{}'))
+                    self.assertEqual(error.exception.code,403);login.assert_not_called()
+                with patch.object(subscription,'sign_in',side_effect=ValueError('Codex is not installed')):
+                    with self.assertRaises(urllib.error.HTTPError) as error:urllib.request.urlopen(urllib.request.Request(base+'/api/code-motion/account/login',data=b'{}',headers=headers))
+                    self.assertEqual(error.exception.code,400);self.assertIn('Codex is not installed',json.load(error.exception)['error'])
+                with patch.object(subscription,'status',return_value={'signed_in':True}),patch.object(subscription,'login_status',return_value={'status':'complete','message':'Account connected'}):
+                    for path in ['/account','/auth/status/?client=dashboard']:
+                        with urllib.request.urlopen(base+'/api/code-motion'+path) as response:self.assertTrue(json.load(response)['signed_in'])
+                with patch.object(subscription,'models',return_value={'source':'account','models':[{'id':'gpt-5.6-sol','name':'GPT-5.6 Sol'}]}) as models:
+                    with urllib.request.urlopen(base+'/api/code-motion/models/') as response:self.assertEqual(json.load(response)['models'][0]['id'],'gpt-5.6-sol')
+                    models.assert_called_once()
+            finally:server.shutdown();server.server_close()
+
     def test_authorization_logs_and_range_download(self):
         with tempfile.TemporaryDirectory() as tmp,patch.object(app,'CODE_STUDIO',cm.Studio(Path(tmp))):
             studio=app.CODE_STUDIO;id='a'*12;p=studio.projects/id;p.mkdir();(p/'preview.mp4').write_bytes(b'0123456789')
