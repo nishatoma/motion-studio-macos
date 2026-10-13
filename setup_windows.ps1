@@ -49,6 +49,8 @@ Invoke-Checked $venvPython @('-m', 'pip', 'install', '-r', 'requirements.txt')
 Invoke-Checked $venvPython @('-m', 'manim', '--version')
 
 Install-Package 'Gyan.FFmpeg'
+Install-Package 'OpenJS.NodeJS.LTS'
+Write-Output 'Code Motion: install/start Docker Desktop with WSL2 Linux containers, then run setup_code_motion.ps1.'
 Install-Package 'Ollama.Ollama'
 Install-Package 'Comfy.ComfyUI-Desktop'
 
@@ -71,3 +73,8 @@ catch {
 Write-Output 'Downloading the local qwen2.5-coder:3b planning model (first run only)...'
 Invoke-Checked $ollamaExe @('pull', 'qwen2.5-coder:3b')
 Write-Output 'Windows essentials are ready. For abstract video, open ComfyUI Desktop, finish its NVIDIA setup, install an 8 GB VRAM-friendly video model, and export a working API workflow.'
+
+if ((Get-Command docker.exe -ErrorAction SilentlyContinue) -and (Get-Command node.exe -ErrorAction SilentlyContinue)) {
+    & docker.exe info *> $null
+    if ($LASTEXITCODE -eq 0) { & (Join-Path $PSScriptRoot 'setup_code_motion.ps1') }
+}

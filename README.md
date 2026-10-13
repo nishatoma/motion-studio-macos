@@ -1,5 +1,16 @@
 # Motion Studio for macOS and Windows
 
+## Code Motion: editable AI-generated Remotion scenes
+
+Motion Studio now includes a **Code Motion** tab alongside Data Graphics and Abstract Video. Generate real React/TypeScript animations with OpenAI or Ollama, preview and revise them, optionally review sampled frames with OpenAI vision, then manually approve an MP4, ProRes 4444 alpha MOV, PNG sequence or editable Remotion project export. Existing Manim/Motion Canvas/Wan/LTX/ComfyUI paths remain available.
+
+Install **Node.js 22+, Docker Desktop (Linux containers), and FFmpeg/FFprobe**. Run the normal platform setup, then `setup_code_motion.command` on macOS or `setup_code_motion.ps1` on Windows with Docker running. Set backend `OPENAI_API_KEY` and `OPENAI_MODEL` environment variables (optionally `OPENAI_REVIEW_MODEL`), restart the app, and choose Code Motion. OpenAI API credits are separate from a ChatGPT subscription. Ollama remains a local alternative.
+
+Generated scenes render only inside a restricted offline Docker worker; there is no host-execution fallback. Reference uploads, fonts, soundtrack/timing maps, reusable styles, before/after previews, persistent jobs, cancellation and logs are integrated into the dashboard.
+
+Read [Code Motion setup, architecture, Resolve workflow and example prompts](docs/CODE_MOTION.md) and [validation results and remaining checks](docs/VALIDATION.md) before using this feature.
+
+
 A local browser dashboard for short video assets for DaVinci Resolve. **Abstract video** uses Wan MLX or LTX on Apple silicon; on Windows it uses a local ComfyUI API workflow and an NVIDIA GPU. **Data graphics** uses Ollama and Manim for precise charts and labeled diagrams on both systems. An optional Motion Canvas project export creates editable vector scenes. Model output is never executed as Python or TypeScript.
 
 ## Requirements for macOS

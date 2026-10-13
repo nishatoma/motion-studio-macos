@@ -23,6 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import code_motion
 import abstract_video
 import local_video
 import motion_canvas_export
@@ -31,7 +32,7 @@ import windows_support
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.10.01.2"
+BUILD_ID = "2026.10.13.code-motion"
 JOBS_DIR = windows_support.output_dir()
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -39,6 +40,17 @@ MAX_PROMPT = 5000
 JOBS: dict[str, dict[str, Any]] = {}
 LOCK = threading.Lock()
 SETUP_TOKEN = secrets.token_urlsafe(32)
+CODE_MOTION_TOKEN = secrets.token_urlsafe(32)
+CODE_STUDIO = None
+CODE_STUDIO_LOCK = threading.Lock()
+
+def code_studio():
+    global CODE_STUDIO
+    with CODE_STUDIO_LOCK:
+        if CODE_STUDIO is None:
+            CODE_STUDIO = code_motion.Studio(JOBS_DIR)
+    return CODE_STUDIO
+
 SETUP_LOCK = threading.Lock()
 SETUP: dict[str, Any] = {"status": "idle", "message": "Windows setup has not been started.", "log": ""}
 
@@ -1258,10 +1270,91 @@ class Handler(BaseHTTPRequestHandler):
         with file_path.open("rb") as video:
             shutil.copyfileobj(video, self.wfile, length=1024 * 1024)
 
+    def _code_file(self, file_path: Path) -> None:
+        import mimetypes
+        length = file_path.stat().st_size
+        start, end = 0, length - 1
+        range_header = self.headers.get("Range")
+        if range_header:
+            match = re.fullmatch(r"bytes=(\d+)-(\d*)", range_header)
+            if not match:
+                return self._json(416, {"error": "Unsupported byte range"})
+            start = int(match[1]); end = min(int(match[2]) if match[2] else end, end)
+            if start > end:
+                return self._json(416, {"error": "Range outside file"})
+        self.send_response(206 if range_header else 200)
+        self.send_header("Content-Type", mimetypes.guess_type(file_path.name)[0] or "text/plain; charset=utf-8")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Length", str(end-start+1))
+        self.send_header("Accept-Ranges", "bytes")
+        if range_header: self.send_header("Content-Range", f"bytes {start}-{end}/{length}")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        with file_path.open('rb') as f:
+            f.seek(start); remaining=end-start+1
+            while remaining:
+                chunk=f.read(min(1024*1024, remaining))
+                if not chunk: break
+                self.wfile.write(chunk); remaining-=len(chunk)
+
+    def _code_get(self, path: str) -> None:
+        studio = code_studio()
+        try:
+            if path == "/api/code-motion/health":
+                return self._json(200, {**studio.health(), "token": CODE_MOTION_TOKEN})
+            if path == "/api/code-motion/jobs":
+                with studio.lock:
+                    jobs = sorted((studio.get(id) for id in studio.jobs), key=lambda j: j['created'], reverse=True)[:50]
+                return self._json(200, {"jobs": jobs})
+            match = re.fullmatch(r"/api/code-motion/jobs/([a-f0-9]{12})(/log)?", path)
+            if match:
+                if match[2]: return self._code_file(studio.file(match[1], "render.log"))
+                job = studio.get(match[1])
+                return self._json(200 if job else 404, job or {"error": "Job not found"})
+            match = re.fullmatch(r"/api/code-motion/files/([a-f0-9]{12})/([^/]+)", path)
+            if match: return self._code_file(studio.file(match[1],match[2]))
+            return self._json(404, {"error": "Not found"})
+        except ValueError as exc: return self._json(404, {"error": str(exc)})
+
+    def _code_post(self) -> None:
+        origin = self.headers.get("Origin")
+        if (origin and origin != "http://" + self.headers["Host"]) or self.headers.get("Sec-Fetch-Site") == "cross-site":
+            return self._json(403, {"error": "Use the local Motion Studio dashboard."})
+        if not secrets.compare_digest(self.headers.get("X-Code-Motion-Token", ""), CODE_MOTION_TOKEN):
+            return self._json(403, {"error": "Refresh the local dashboard before changing Code Motion jobs."})
+        studio = code_studio()
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 25*1024*1024:
+                return self._json(413, {"error": "Request must be under 25 MB."})
+            data = self.rfile.read(length)
+            if self.path == "/api/code-motion/assets":
+                from urllib.parse import unquote
+                return self._json(201, studio.upload(unquote(self.headers.get("X-Filename", "")),data))
+            if length > 40000: return self._json(413, {"error": "Settings request too large."})
+            body = json.loads(data)
+            if not isinstance(body, dict): raise ValueError("Expected a JSON object.")
+            if self.path == "/api/code-motion/styles":
+                return self._json(201, {"id":studio.save_style(body.get("name",""),body.get("direction",""))})
+            if self.path == "/api/code-motion/jobs":
+                return self._json(202, {"id":studio.start(body)})
+            match = re.fullmatch(r"/api/code-motion/jobs/([a-f0-9]{12})/(revise|export|cancel)",self.path)
+            if match:
+                if match[2] == "cancel":
+                    studio.cancel(match[1]); return self._json(202, {"id":match[1]})
+                return self._json(202, {"id":studio.start(body,match[1],match[2])})
+            return self._json(404, {"error": "Not found"})
+        except (ValueError,TypeError,OverflowError) as exc:
+            return self._json(400, {"error":str(exc)})
+
     def do_GET(self) -> None:
         if not self._local_host():
             return self._json(403, {"error": "Open Motion Studio at 127.0.0.1."})
         path = self.path.split("?", 1)[0]
+        if path.startswith("/api/code-motion/"):
+            return self._code_get(path)
+        if path == "/code-motion.js":
+            return self._send(200, (WEB / "code-motion.js").read_bytes(), "text/javascript; charset=utf-8")
         if path == "/" or path == "/index.html":
             self._send(200, (WEB / "index.html").read_bytes(), "text/html; charset=utf-8")
         elif path == "/api/health":
@@ -1306,6 +1399,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self._local_host():
             return self._json(403, {"error": "Open Motion Studio at 127.0.0.1."})
+        if self.path.startswith("/api/code-motion/"):
+            return self._code_post()
         if self.path == "/api/motion-canvas/jobs":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -1445,6 +1540,8 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nStopping Motion Studio…")
     finally:
+        if CODE_STUDIO is not None:
+            CODE_STUDIO.shutdown()
         server.server_close()
 
 

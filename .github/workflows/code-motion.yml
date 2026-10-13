@@ -1,0 +1,35 @@
+name: Code Motion validation
+on:
+  push:
+    branches: [feat/code-motion-remotion]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  regression-and-render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: code-motion/package-lock.json
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: python -m pip install Pillow==11.3.0
+      - run: npm ci --prefix code-motion
+      - run: python -m unittest discover -s tests -v
+      - run: npm test --prefix code-motion
+      - run: cd code-motion && npx playwright install --with-deps chromium && PLAYWRIGHT_USE_DEFAULT=1 npm run test:dashboard
+      - run: docker build -t motion-studio-remotion:1 code-motion
+      - run: CODE_MOTION_DOCKER_TESTS=1 python -m unittest discover -s tests -p test_code_motion_docker.py -v
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: code-motion-example-renders
+          path: test-render-output/
+          if-no-files-found: ignore

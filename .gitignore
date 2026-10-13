@@ -3,3 +3,12 @@ __pycache__/
 *.py[cod]
 media/
 vendor/
+
+node_modules/
+.env
+.env.*
+!.env.example
+code-motion/smoke-output/
+__pycache__/
+
+test-render-output/
