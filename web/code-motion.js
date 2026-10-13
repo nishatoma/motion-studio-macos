@@ -4,6 +4,7 @@
   const expectedApi=Number(document.querySelector('meta[name="motion-studio-api-version"]').content);
   const restartMessage='The dashboard was updated, but the running Motion Studio server is older. Close its command window, restart start_windows.bat (or start.command), then reload this page.';
   const controls=['cmGenerate','cmRevise','cmRegenerate','cmExport'];
+  controls.forEach(id=>$(id).disabled=true);
   async function request(url,body,headers={}) {
     const response=await fetch(url,{method:'POST',headers:{'X-Code-Motion-Token':token,'Content-Type':'application/json',...headers},body:body instanceof File?body:JSON.stringify(body)});
     const data=await response.json();if(!response.ok)throw Error(response.status===404 && url.includes('/account/')?restartMessage:data.error||'Code Motion request failed');return data;

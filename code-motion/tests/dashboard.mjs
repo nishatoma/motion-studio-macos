@@ -28,7 +28,11 @@ try {
  const page=await browser.newPage({viewport:{width:1440,height:1100}});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  for(let i=0;i<50;i++){try{await fetch('http://127.0.0.1:8768');break}catch{await new Promise(r=>setTimeout(r,100))}}
+ let releaseHealth;const healthGate=new Promise(resolve=>{releaseHealth=resolve});
+ await page.route('**/api/code-motion/health',async route=>{await healthGate;await route.continue()},{times:1});
  await page.goto('http://127.0.0.1:8768');await page.click('#codeTab');
+ assert.equal(await page.locator('#cmSignIn').isDisabled(),true);assert.equal(await page.locator('#cmGenerate').isDisabled(),true);
+ releaseHealth();
  await page.waitForFunction(()=>document.querySelector('#cmModel option[value="gpt-5.6-sol"]') && !document.getElementById('cmSignIn').disabled);
  assert.equal(await page.locator('#cmProvider').inputValue(),'codex');assert.equal(await page.locator('#cmAccount').isVisible(),true);
  assert.equal(await page.locator('#cmModel').inputValue(),'');
