@@ -10,12 +10,15 @@ import os
 from pathlib import Path
 import shutil
 import platform
+import queue
+import re
 import subprocess
 import tempfile
 import threading
 import time
 
 ROOT=Path(__file__).resolve().parent
+MODEL_PRESETS=[{'id':id,'name':name} for id,name in [('gpt-5.6-sol','GPT-5.6 Sol'),('gpt-5.6-terra','GPT-5.6 Terra'),('gpt-5.6-luna','GPT-5.6 Luna'),('gpt-6.1-sol','GPT-6.1 Sol'),('gpt-6-sol','GPT-6 Sol'),('gpt-6-luna','GPT-6 Luna'),('gpt-6-astra','GPT-6 Astra')]]
 DISABLED_FEATURES=('shell_tool','unified_exec','code_mode_host','apps','plugins','hooks','multi_agent','browser_use','browser_use_external','computer_use','image_generation','workspace_dependencies','view_image','sleep_tool','memories','skill_search')
 
 
@@ -48,7 +51,7 @@ class Subscription:
     def __init__(self,base):
         self.home=Path(base)/'codex-account';self.home.mkdir(parents=True,exist_ok=True)
         if os.name!='nt': self.home.chmod(0o700)
-        self.lock=threading.RLock();self.login_process=None;self.active=set()
+        self.lock=threading.RLock();self.login_process=None;self.active=set();self.model_cache=None;self.model_cache_time=0
         self.login_state={'status':'idle','message':'Sign in once with your ChatGPT account. No API key is needed.'}
     def status(self):
         try:
@@ -63,17 +66,81 @@ class Subscription:
         with self.lock:
             if self.login_state['status']=='running':return dict(self.login_state)
             cmd=command();self.login_state={'status':'running','message':'Complete ChatGPT sign-in in the browser opened by Codex.'}
-            self.login_process=subprocess.Popen([*cmd,'login'],env=environment(self.home),cwd=self.home,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            try:
+                self.login_process=subprocess.Popen([*cmd,'login'],env=environment(self.home),cwd=self.home,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            except OSError as exc:
+                self.login_state={'status':'error','message':'Codex could not launch. Run Code Motion setup, then restart Motion Studio.'}
+                raise ValueError(self.login_state['message']) from exc
             threading.Thread(target=self._finish_login,daemon=True).start();return dict(self.login_state)
     def _finish_login(self):
         process=self.login_process
         try:
             code=process.wait(timeout=180)
             state=self.status()
+            self.model_cache=None
             with self.lock:self.login_state={'status':'complete' if code==0 and state['signed_in'] else 'error','message':state['message'] if code==0 else 'Sign-in did not finish. Click Sign in with ChatGPT to retry.'}
         except subprocess.TimeoutExpired:
             process.kill();process.wait()
             with self.lock:self.login_state={'status':'error','message':'Sign-in timed out. Click Sign in with ChatGPT to retry.'}
+    def models(self):
+        """Read account model metadata only: no generation, tools, or inference turns."""
+        if self.model_cache is not None and time.monotonic()-self.model_cache_time<60:return self.model_cache
+        if not self.status()['signed_in']:
+            return {'source':'presets','models':MODEL_PRESETS,'message':'Sign in to load your account models. These presets still require account access.'}
+        try:
+            models=self._list_models()
+            if not models:raise ValueError('No models returned')
+            value={'source':'account','models':models,'message':'Models returned by your signed-in Codex account.'}
+        except (OSError,ValueError,subprocess.SubprocessError):
+            value={'source':'presets','models':MODEL_PRESETS,'message':'Account model list is unavailable. Showing presets; availability is checked when generating.'}
+        self.model_cache=value;self.model_cache_time=time.monotonic();return value
+    def _list_models(self):
+        args=[*command(),'app-server','--stdio']
+        for feature in DISABLED_FEATURES:args.extend(['--disable',feature])
+        process=subprocess.Popen(args,env=environment(self.home),cwd=self.home,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,encoding='utf-8')
+        messages=queue.Queue()
+        def read():
+            for line in process.stdout:
+                if len(line)>1_000_000:continue
+                try:messages.put(json.loads(line))
+                except ValueError:continue
+            messages.put(None)
+        threading.Thread(target=read,daemon=True).start()
+        def send(method,id=None,params=None):
+            value={'method':method,'params':params or {}}
+            if id is not None:value['id']=id
+            process.stdin.write(json.dumps(value)+'\n');process.stdin.flush()
+        def response(id):
+            deadline=time.monotonic()+12
+            while time.monotonic()<deadline:
+                try:message=messages.get(timeout=.2)
+                except queue.Empty:continue
+                if message is None:raise ValueError('Codex model server stopped')
+                if message.get('id')==id:
+                    if 'error' in message:raise ValueError('Codex model metadata request failed')
+                    return message.get('result',{})
+            raise ValueError('Model discovery timed out')
+        try:
+            send('initialize',1,{'clientInfo':{'name':'motion_studio','title':'Motion Studio','version':'1.0'}});response(1);send('initialized')
+            models=[];cursor=None
+            for page in range(3):
+                params={'limit':100,'includeHidden':False}
+                if cursor:params['cursor']=cursor
+                send('model/list',page+2,params);result=response(page+2)
+                for item in result.get('data',[]):
+                    id=item.get('model') or item.get('id')
+                    if isinstance(id,str) and re.fullmatch(r'[a-zA-Z0-9_.:/-]{1,150}',id) and not item.get('hidden'):
+                        models.append({'id':id,'name':str(item.get('displayName') or id)[:120]})
+                cursor=result.get('nextCursor')
+                if not cursor:break
+            return list({m['id']:m for m in models}.values())
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:process.wait(timeout=5)
+                except subprocess.TimeoutExpired:process.kill();process.wait(timeout=5)
+            process.stdin.close();process.stdout.close()
+
     def login_status(self):
         with self.lock:return dict(self.login_state)
     def stop(self):

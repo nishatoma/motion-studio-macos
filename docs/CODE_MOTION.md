@@ -14,7 +14,9 @@ A job contains `Scene.tsx`, trusted root, `job.json`, uploaded public assets, pr
 
 ## Use your ChatGPT subscription without an API key
 
-Select **ChatGPT subscription · Codex** in Code Motion, then click **Sign in with ChatGPT** and complete the browser sign-in. This is the official Codex CLI subscription route, not direct OpenAI API access or browser-cookie reuse. Plus access is subject to your account's Codex eligibility and usage limits. Leave the model blank to use Codex's current default, or configure `CODEX_MODEL` / `CODEX_REVIEW_MODEL`.
+Select **ChatGPT subscription · Codex** in Code Motion, then click **Sign in with ChatGPT** and complete the browser sign-in. This is the official Codex CLI subscription route, not direct OpenAI API access or browser-cookie reuse. Plus access is subject to your account's Codex eligibility and usage limits. Choose **Automatic · Codex default**, select a model such as **GPT-5.6 Sol**, or enter a **Custom model ID**. `CODEX_MODEL` / `CODEX_REVIEW_MODEL` provide optional backend defaults.
+
+Before sign-in, the dropdown shows named presets with an account-access notice. After sign-in, the backend requests the account's available models using the official Codex app-server `model/list` protocol over private stdio and caches metadata for one minute. If discovery fails, presets remain selectable with an explicit availability warning. A preset is not a promise of access. The selected ID is passed unchanged to generation and to new revisions; the app does not silently substitute a different model. API mode retains custom IDs and Ollama lists installed local models. Model metadata does not invoke generation or consume an inference turn.
 
 Generation, image references, code repairs, metadata planning and Auto Review all use this selected provider. It never silently falls back to the billed OpenAI API. API and Ollama providers remain selectable.
 
@@ -23,6 +25,12 @@ The setup installs pinned Codex CLI 0.162.1 as a host-only development dependenc
 Requests use schema-constrained `codex exec`, supplied image attachments, read-only mode, disabled shell/browser/computer/app/plugin/agent tools, disabled hooks/web search and a temporary work directory. API keys and inherited Codex access tokens are stripped from the child environment. User CLI config/rules are ignored for generation; trusted instructions and flags are supplied explicitly. The CLI returns JSON; generated TSX still runs only in the existing offline Docker renderer. Closing the app/cancelling a request terminates the active generation process.
 
 Official documentation: https://learn.chatgpt.com/docs/auth and https://learn.chatgpt.com/docs/non-interactive-mode
+
+### Sign-in says “Not found” after updating
+
+Updating files while the Python process is running can load the new dashboard against an old server. Close the Motion Studio command window (or press Ctrl+C in its terminal), then launch **start_windows.bat** on Windows or **start.command** on macOS and reload the page. A browser refresh alone does not restart Python, and this does not require rerunning Windows setup.
+
+The dashboard checks the server's API version/capabilities before enabling sign-in or generation. An old server now gives these restart instructions. A missing login route also produces a restart message. Current server login routes accept the canonical `/api/code-motion/account/login`, compatibility aliases `/api/code-motion/auth/login` and `/api/code-motion/login`, and trailing slashes/query strings. Writes still require the local per-launch token and same-origin checks. Missing Codex executables return actionable setup errors rather than a dropped connection.
 
 ## Windows: setup completed but Code Motion says it is not ready
 

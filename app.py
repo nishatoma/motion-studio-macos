@@ -32,7 +32,8 @@ import windows_support
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.10.13.code-motion"
+BUILD_ID = "2026.10.13.auth-models.3"
+CODE_MOTION_API_VERSION = 3
 JOBS_DIR = windows_support.output_dir()
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -1317,10 +1318,12 @@ class Handler(BaseHTTPRequestHandler):
         studio = code_studio()
         try:
             if path == "/api/code-motion/health":
-                return self._json(200, {**studio.health(), "token": CODE_MOTION_TOKEN})
+                return self._json(200, {**studio.health(), "token": CODE_MOTION_TOKEN,"api_version":CODE_MOTION_API_VERSION,"build":BUILD_ID,"capabilities":["subscription-login","model-picker"]})
             if path == "/api/code-motion/setup":
                 with CODE_SETUP_LOCK: return self._json(200,dict(CODE_SETUP))
-            if path == "/api/code-motion/account":
+            if path == "/api/code-motion/models":
+                return self._json(200,studio.subscription.models())
+            if path in {"/api/code-motion/account","/api/code-motion/auth/status"}:
                 return self._json(200,{**studio.subscription.status(),**studio.subscription.login_status()})
             if path == "/api/code-motion/jobs":
                 with studio.lock:
@@ -1337,6 +1340,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as exc: return self._json(404, {"error": str(exc)})
 
     def _code_post(self) -> None:
+        path=self.path.split("?",1)[0].rstrip("/")
         origin = self.headers.get("Origin")
         if (origin and origin != "http://" + self.headers["Host"]) or self.headers.get("Sec-Fetch-Site") == "cross-site":
             return self._json(403, {"error": "Use the local Motion Studio dashboard."})
@@ -1348,15 +1352,15 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < length <= 25*1024*1024:
                 return self._json(413, {"error": "Request must be under 25 MB."})
             data = self.rfile.read(length)
-            if self.path == "/api/code-motion/assets":
+            if path == "/api/code-motion/assets":
                 from urllib.parse import unquote
                 return self._json(201, studio.upload(unquote(self.headers.get("X-Filename", "")),data))
             if length > 40000: return self._json(413, {"error": "Settings request too large."})
             body = json.loads(data)
             if not isinstance(body, dict): raise ValueError("Expected a JSON object.")
-            if self.path == "/api/code-motion/account/login":
+            if path in {"/api/code-motion/account/login","/api/code-motion/auth/login","/api/code-motion/login"}:
                 return self._json(202,studio.subscription.sign_in())
-            if self.path == "/api/code-motion/setup":
+            if path == "/api/code-motion/setup":
                 readiness=studio.health()
                 if not readiness.get('checks',{}).get('linux_containers'):
                     raise ValueError(readiness['message'])
@@ -1365,11 +1369,11 @@ class Handler(BaseHTTPRequestHandler):
                     CODE_SETUP.update(status='running',message='Installing Codex and building the renderer…',log='')
                 threading.Thread(target=run_code_setup,daemon=True).start()
                 return self._json(202,{'status':'running'})
-            if self.path == "/api/code-motion/styles":
+            if path == "/api/code-motion/styles":
                 return self._json(201, {"id":studio.save_style(body.get("name",""),body.get("direction",""))})
-            if self.path == "/api/code-motion/jobs":
+            if path == "/api/code-motion/jobs":
                 return self._json(202, {"id":studio.start(body)})
-            match = re.fullmatch(r"/api/code-motion/jobs/([a-f0-9]{12})/(revise|export|cancel)",self.path)
+            match = re.fullmatch(r"/api/code-motion/jobs/([a-f0-9]{12})/(revise|export|cancel)",path)
             if match:
                 if match[2] == "cancel":
                     studio.cancel(match[1]); return self._json(202, {"id":match[1]})
@@ -1381,7 +1385,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if not self._local_host():
             return self._json(403, {"error": "Open Motion Studio at 127.0.0.1."})
-        path = self.path.split("?", 1)[0]
+        path = self.path.split("?", 1)[0].rstrip("/") or "/"
         if path.startswith("/api/code-motion/"):
             return self._code_get(path)
         if path == "/code-motion.js":
