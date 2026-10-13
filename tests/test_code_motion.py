@@ -65,7 +65,7 @@ class CodeMotionTest(unittest.TestCase):
             self.studio.run_worker(id,'preview')
         cmd=spawn.call_args.args[0]
         self.assertIn('--network',cmd);self.assertEqual(cmd[cmd.index('--network')+1],'none');self.assertIn('--read-only',cmd);self.assertIn('no-new-privileges',cmd);self.assertIn('--cap-drop',cmd);self.assertIn('--memory',cmd)
-        self.assertEqual(cmd.count('--mount'),1);self.assertNotIn('--env',cmd);self.assertNotIn('OPENAI_API_KEY',' '.join(cmd));self.assertEqual(cleanup.call_args.args[0],['docker','rm','-f','motion-studio-'+id])
+        self.assertEqual(cmd.count('--mount'),1);self.assertNotIn('--env',cmd);self.assertNotIn('OPENAI_API_KEY',' '.join(cmd));self.assertEqual(cleanup.call_args.args[0],[cmd[0],'rm','-f','motion-studio-'+id])
     def test_no_unsafe_host_fallback(self):
         with patch.object(self.studio,'health',return_value={'ready':False}),self.assertRaisesRegex(ValueError,'Docker'):
             self.studio.start({**BODY,'provider':'ollama'})
