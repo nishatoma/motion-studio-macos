@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
+$env:Path = (@($env:Path, [Environment]::GetEnvironmentVariable('Path','Machine'), [Environment]::GetEnvironmentVariable('Path','User'), (Join-Path $env:ProgramFiles 'nodejs'), (Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin')) | Where-Object { $_ }) -join ';'
 function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Program exited with code $LASTEXITCODE" }
@@ -15,4 +16,4 @@ Invoke-Checked 'docker.exe' @('info')
 Invoke-Checked 'npm.cmd' @('ci', '--prefix', 'code-motion')
 Invoke-Checked 'npm.cmd' @('test', '--prefix', 'code-motion')
 Invoke-Checked 'docker.exe' @('build', '-t', 'motion-studio-remotion:1', 'code-motion')
-Write-Output 'Code Motion ready. Set OPENAI_API_KEY and OPENAI_MODEL on the backend, then restart Motion Studio.'
+Write-Output 'Code Motion ready. Choose ChatGPT subscription and Sign in with ChatGPT, or set OPENAI_API_KEY and OPENAI_MODEL for API use, then restart Motion Studio.'

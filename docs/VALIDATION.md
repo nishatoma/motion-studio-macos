@@ -39,3 +39,9 @@ The hosted runner denies OS interface enumeration. The **fixture-only** render t
 Run `cd code-motion && npx remotion browser ensure && npm run smoke` for trusted developer fixtures. Results appear under `code-motion/smoke-output/{financial,kinetic,overlay,audio,4k,vertical}/`, including `preview.mp4`, full-resolution `animation.mp4` or `animation.mov`, sampled PNGs and the overlay PNG sequence. A machine needs Chromium's system libraries for this developer test; the normal application uses the Docker image instead.
 
 Run the opt-in Docker tests described in [CODE_MOTION.md](CODE_MOTION.md) to validate the actual application rendering boundary. GitHub Actions uploads examples from that pipeline as a downloadable workflow artifact.
+
+## Subscription and Windows-readiness follow-up
+
+Local follow-up checks: 67 Python tests run, 66 passed and the Docker integration skipped; 20 Node validation tests passed. New tests cover ChatGPT versus API authentication, optional Codex default model, schema/image transport, stripped API credentials, disabled tools, no API fallback, same-provider vision review, native Windows tool discovery and distinct Docker readiness states. The installed pinned CLI's real help/feature list and unauthenticated login-status command were checked. Browser tests cover subscription selection and refresh controls in addition to the prior preview/approval/export flow.
+
+Live ChatGPT browser sign-in and subscription-backed inference cannot be completed in this environment without the user's account. The Windows fixes were tested through simulated installation paths and process responses; actual Windows setup still needs a check on the user's PC. Rendering behavior is unchanged; the original Docker integration passed in GitHub Actions run 38441216027.
