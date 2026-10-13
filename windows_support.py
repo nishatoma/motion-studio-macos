@@ -35,3 +35,27 @@ def ffmpeg_binary() -> str | None:
 def setup_command(root: Path) -> list[str]:
     return ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
             "-File", str(root / "setup_windows.ps1")]
+
+
+def tool_binary(name: str) -> str | None:
+    """Find native tools even when WinGet changed PATH after the app started."""
+    found = shutil.which(name)
+    if found:
+        return found
+    if platform.system() != "Windows":
+        return None
+    program_files = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
+    local = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData/Local")))
+    candidates = {
+        "node": [program_files / "nodejs/node.exe", local / "Programs/nodejs/node.exe"],
+        "docker": [program_files / "Docker/Docker/resources/bin/docker.exe"],
+        "ffmpeg": [local / "Microsoft/WinGet/Links/ffmpeg.exe"],
+        "ffprobe": [local / "Microsoft/WinGet/Links/ffprobe.exe"],
+    }.get(name, [])
+    return next((str(path) for path in candidates if path.is_file()), None)
+
+
+def code_setup_command(root: Path) -> list[str]:
+    if platform.system() == "Windows":
+        return ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(root / "setup_code_motion.ps1")]
+    return ["bash",str(root / "setup_code_motion.command")]

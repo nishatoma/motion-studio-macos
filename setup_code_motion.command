@@ -13,4 +13,4 @@ fi
 npm ci --prefix code-motion
 npm test --prefix code-motion
 docker build -t motion-studio-remotion:1 code-motion
-echo "Code Motion ready. Set OPENAI_API_KEY and OPENAI_MODEL in your backend environment, then launch Motion Studio."
+echo "Code Motion ready. Choose ChatGPT subscription and sign in, or set OPENAI_API_KEY and OPENAI_MODEL for API use, then launch Motion Studio."

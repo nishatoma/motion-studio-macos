@@ -1,7 +1,7 @@
 name: Code Motion validation
 on:
   push:
-    branches: [feat/code-motion-remotion]
+    branches: [feat/code-motion-remotion, fix/chatgpt-subscription-windows-readiness]
   pull_request:
 permissions:
   contents: read

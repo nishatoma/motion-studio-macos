@@ -13,6 +13,7 @@ PYTHON="$(brew --prefix python@3.11)/bin/python3.11"
 "$PYTHON" -m venv .venv
 .venv/bin/python -m pip install --upgrade pip wheel
 .venv/bin/python -m pip install -r requirements.txt
+npm ci --prefix code-motion
 chmod +x start.command setup_code_motion.command
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   ./setup_code_motion.command

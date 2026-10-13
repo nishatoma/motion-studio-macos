@@ -12,6 +12,26 @@ Code Motion extends the existing Python dashboard. Data Graphics (Manim), editab
 
 A job contains `Scene.tsx`, trusted root, `job.json`, uploaded public assets, preview, sampled frames, logs and saved state. They live under the existing render directory's `code-motion/` subfolder. Restart recovers finished jobs and marks interrupted work for manual retry. Generated projects do not install dependencies during rendering. Only checked-in setup scripts build/install the reviewed dependency set.
 
+## Use your ChatGPT subscription without an API key
+
+Select **ChatGPT subscription · Codex** in Code Motion, then click **Sign in with ChatGPT** and complete the browser sign-in. This is the official Codex CLI subscription route, not direct OpenAI API access or browser-cookie reuse. Plus access is subject to your account's Codex eligibility and usage limits. Leave the model blank to use Codex's current default, or configure `CODEX_MODEL` / `CODEX_REVIEW_MODEL`.
+
+Generation, image references, code repairs, metadata planning and Auto Review all use this selected provider. It never silently falls back to the billed OpenAI API. API and Ollama providers remain selectable.
+
+The setup installs pinned Codex CLI 0.162.1 as a host-only development dependency; it is excluded from the render container. The backend locates its native Windows/macOS/Linux binary, including ARM64. Codex manages credentials in a private app account profile under the render root's `code-motion/codex-account` directory; credentials are not read by Motion Studio, copied from your browser, returned to the frontend or included in render mounts/exports. One sign-in connects this app-specific profile; an existing ChatGPT browser session alone does not authenticate it automatically.
+
+Requests use schema-constrained `codex exec`, supplied image attachments, read-only mode, disabled shell/browser/computer/app/plugin/agent tools, disabled hooks/web search and a temporary work directory. API keys and inherited Codex access tokens are stripped from the child environment. User CLI config/rules are ignored for generation; trusted instructions and flags are supplied explicitly. The CLI returns JSON; generated TSX still runs only in the existing offline Docker renderer. Closing the app/cancelling a request terminates the active generation process.
+
+Official documentation: https://learn.chatgpt.com/docs/auth and https://learn.chatgpt.com/docs/non-interactive-mode
+
+## Windows: setup completed but Code Motion says it is not ready
+
+The original Windows setup installs the legacy tools. Code Motion additionally needs Docker Desktop running **Linux containers**, a built `motion-studio-remotion:1` image and the bundled Codex CLI for subscription mode.
+
+Click **Refresh readiness**. The dashboard distinguishes missing Docker, an installed but stopped engine, Windows-container mode, a missing renderer image and missing FFprobe. Native tools are also checked at their standard Windows installation locations, so a stale PATH in an already-running app no longer disguises an installed Docker/Node/FFprobe as missing. Setup scripts refresh PATH and skip already installed WinGet packages.
+
+If Docker is running but the renderer image is missing, click **Set up Code Motion renderer**. This runs the checked-in Code Motion setup script and shows its log; it does not rerun the original ComfyUI/Manim setup. If Docker is absent/stopped, install/start it first. Windows requires Docker Desktop with WSL2 Linux containers. Restart Motion Studio once after updating its files and dependencies; refresh readiness thereafter.
+
 ## Install
 
 Additional requirements: Node.js 22+, Docker Desktop with Linux containers, FFmpeg/FFprobe and Pillow. Docker Desktop on Windows requires WSL2. Start Docker Desktop before rendering. The render image includes Chromium and FFmpeg; using Debian Chromium allows native Linux ARM64 builds on Apple silicon.
@@ -41,9 +61,9 @@ $env:OPENAI_REVIEW_MODEL = 'your-vision-capable-model' # optional
 .\start_windows.bat
 ```
 
-The scripts do not install/start Docker Desktop silently. API keys are backend environment variables; enter them in your local shell/session or your OS credential-backed launcher, never into a project or frontend. `.env` files are ignored but not automatically loaded. A ChatGPT subscription does not provide OpenAI API credits. Pick models that support structured outputs; references and review also need image input support. API/image usage incurs provider charges.
+The scripts do not install/start Docker Desktop silently. For API mode, keys are backend environment variables; enter them in your local shell/session or your OS credential-backed launcher, never into a project or frontend. `.env` files are ignored but not automatically loaded. A ChatGPT subscription does not provide OpenAI API credits. Pick models that support structured outputs; references and review also need image input support. API/image usage incurs provider charges.
 
-For local generation select Ollama and an installed coding model. Set `OLLAMA_URL` only to a loopback HTTP endpoint. Image references require a vision-capable Ollama model. Auto Review uses OpenAI; the UI disables it when Ollama is selected. Generation and review model names are configurable rather than hardcoded.
+For local generation select Ollama and an installed coding model. Set `OLLAMA_URL` only to a loopback HTTP endpoint. Image references require a vision-capable Ollama model. Auto Review uses the selected OpenAI API or ChatGPT subscription provider; the UI disables it when Ollama is selected. Generation and review model names are configurable rather than hardcoded.
 
 ## Dashboard workflow
 
@@ -52,7 +72,7 @@ For local generation select Ollama and an installed coding model. Set `OLLAMA_UR
 3. Upload screenshots, images, sanitized SVG artwork, fonts and sound effects. Upload a soundtrack separately. Raster references are sent as resized images to the provider; SVG markup and font aliases are provided as design context. Follow the rights applicable to your uploaded assets. Fonts become `ReferenceFont0`, `ReferenceFont1`, etc.
 4. A timing map is an array of events: `[{"time":0.5,"label":"title enters"},{"time":2,"label":"impact"},{"time":4,"label":"final reveal"}]`. Seconds convert to exact rounded frame indices and enter the generation prompt. The soundtrack uses a trusted Remotion Audio wrapper. Beat maps guide generated code; they are not an automatic beat detector or a guarantee that an AI follows every event correctly.
 5. Generate a preview at up to 640 pixels on its longest edge, with the saved composition's fps and duration. Generation retries validation/render failures at most twice. Full resolution uses the same saved code and metadata.
-6. Optionally enable Auto Review. It samples the beginning/end, evenly distributed frames, model-suggested dense moments and beat boundaries. OpenAI returns concrete frame-specific feedback; the studio permits 0–3 visual revisions, independently of validation repairs. Each revision retains a previous preview for comparison. Failed visual revisions restore the last validated code/preview. Review remains advisory; unresolved feedback is visible, never disguised by a quality score.
+6. Optionally enable Auto Review. It samples the beginning/end, evenly distributed frames, model-suggested dense moments and beat boundaries. The selected OpenAI provider returns concrete frame-specific feedback; the studio permits 0–3 visual revisions, independently of validation repairs. Each revision retains a previous preview for comparison. Failed visual revisions restore the last validated code/preview. Review remains advisory; unresolved feedback is visible, never disguised by a quality score.
 7. Inspect the video, notes and logs. Revise with an additional prompt, regenerate, or return to a saved job. **Tick manual approval** before exporting. Export is locked to that preview's metadata/assets/code; make a new preview to change them. Saved styles accept your typography/color/layout/motion direction, including notes from a successful scene.
 
 Default presets cover documentary graphics, talking-head overlays, finance charts, cinematic titles, and vertical Shorts/Reels. Supported base dimensions: 1280×720, 1920×1080, 3840×2160, 1080×1920; portrait/square aspect selections adapt those dimensions. 24, 30 and 60 fps appear in the UI. All movement must use frames, spring/interpolation/easing; masks, SVGs, layers, parallax and camera pushes are expressed in generated JSX. Scenes are constrained to React and the supported Remotion APIs rather than arbitrary npm dependencies.
@@ -73,7 +93,7 @@ An editable project is executable code: review it before `npm install`/`npm star
 
 ## Reliability and limits
 
-- `CODE_MOTION_TIMEOUT` defaults to 900 seconds per worker run, including bundle, render and samples. API calls have 180-second timeouts. Cancelling an in-flight provider request suppresses subsequent work but cannot interrupt that HTTP call immediately.
+- `CODE_MOTION_TIMEOUT` defaults to 900 seconds per worker run, including bundle, render and samples. API calls have 180-second timeouts; Codex generation has a 300-second timeout. Cancelling an in-flight provider request suppresses subsequent work but cannot interrupt that HTTP call immediately.
 - `CODE_MOTION_MAX_JOB_BYTES` defaults to 4 GiB; the worker's output is checked every two seconds. Reduce resolution/duration for large PNG sequences. Containers have 4 GiB RAM, two CPUs, 256 processes and bounded temporary storage.
 - One rendering pipeline runs at a time. Cancellation and application shutdown remove the named container, rather than merely killing its Docker client.
 - Static validation catches many mistakes, not every JavaScript trick. Docker isolation assumes a maintained Docker/kernel/Chromium installation; this is a local studio, not a public multi-tenant render host.

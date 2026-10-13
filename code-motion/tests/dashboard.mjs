@@ -7,9 +7,10 @@ try {
  browser=await chromium.launch({...(process.env.PLAYWRIGHT_USE_DEFAULT?{}:{executablePath}),headless:true,args:['--no-sandbox']});const page=await browser.newPage({viewport:{width:1440,height:1100}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
  for(let i=0;i<50;i++){try{await fetch('http://127.0.0.1:8768');break}catch{await new Promise(r=>setTimeout(r,100))}}
  await page.goto('http://127.0.0.1:8768');await page.click('#codeTab');await page.waitForFunction(()=>document.getElementById('cmReadiness').textContent.includes('Docker'));
+ assert.equal(await page.locator('#cmProvider').inputValue(),'codex');assert.equal(await page.locator('#cmAccount').isVisible(),true);await page.click('#cmRefresh');
  assert.equal(await page.locator('#graphicsFields').isVisible(),false);assert.equal(await page.locator('#codeFields').isVisible(),true);
- await page.fill('#cmModel','test-model');await page.selectOption('#cmStyle','overlay');assert.equal(await page.locator('#cmTransparent').isChecked(),true);assert.equal(await page.locator('#cmFormat').inputValue(),'prores');
- await page.locator('#codeFields details').first().locator('summary').click();await page.fill('#cmStyleName','Browser test');await page.fill('#cmStyleDirection','Dark editorial typography');await page.click('#cmSaveStyle');await page.waitForFunction(()=>document.getElementById('status').textContent==='Style saved.');
+ await page.selectOption('#cmProvider','openai');await page.fill('#cmModel','test-model');await page.selectOption('#cmStyle','overlay');assert.equal(await page.locator('#cmTransparent').isChecked(),true);assert.equal(await page.locator('#cmFormat').inputValue(),'prores');
+ await page.getByText('Save a reusable style',{exact:true}).click();await page.fill('#cmStyleName','Browser test');await page.fill('#cmStyleDirection','Dark editorial typography');await page.click('#cmSaveStyle');await page.waitForFunction(()=>document.getElementById('status').textContent==='Style saved.');
  await page.route('**/api/code-motion/jobs',async route=>{assert.equal(JSON.parse(route.request().postData()).model,'test-model');await route.fulfill({json:{id:'aaaaaaaaaaaa'}})},{times:1});
  const preview={id:'aaaaaaaaaaaa',action:'generate',status:'complete',progress:1,message:'Preview ready',video:'/example.mp4',design_source:'/Scene.tsx',history:[],design_notes:'Readable alpha overlay',created:1};
  await page.route('**/api/code-motion/jobs/aaaaaaaaaaaa',route=>route.fulfill({json:preview}));

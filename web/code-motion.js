@@ -8,8 +8,12 @@
   }
   async function refresh() {
     const r=await fetch('/api/code-motion/health');if(!r.ok)throw Error('Code Motion backend unavailable');cmHealth=await r.json();token=cmHealth.token;
-    $('cmReadiness').textContent=cmHealth.message+(!cmHealth.openai_configured?' · OpenAI API key not configured':'');
-    if(!$('cmModel').value)$('cmModel').value=cmHealth.model;
+    $('cmReadiness').textContent=cmHealth.message;
+    $('cmDiagnostics').textContent=Object.entries(cmHealth.checks||{}).map(([name,ready])=>`${ready?'✓':'✗'} ${name.replaceAll('_',' ')}`).join('\n');
+    $('cmAccountStatus').textContent=cmHealth.subscription?.message||'Sign in with ChatGPT.';
+    $('cmSignIn').disabled=cmHealth.login?.status==='running';
+    if(!$('cmModel').value)$('cmModel').value=$('cmProvider').value==='codex'?(cmHealth.codex_model||''):$('cmProvider').value==='openai'?cmHealth.model:(health?.models?.[0]||'');
+    providerHint();
     const old=$('cmStyle').value;$('cmStyle').replaceChildren();
     for(const [id,style] of Object.entries(cmHealth.styles)) {const option=document.createElement('option');option.value=id;option.textContent=style.name;$('cmStyle').append(option)}
     if([...$('cmStyle').options].some(o=>o.value===old))$('cmStyle').value=old;
@@ -31,10 +35,30 @@
   $('cmAudio').addEventListener('change',async()=>{if(busy)return;locked(true);try{audio=$('cmAudio').files[0]?await upload($('cmAudio').files[0]):null;showStatus(audio?'Audio ready: '+audio.name:'Audio removed.','ok')}catch(e){audio=null;showStatus(e.message,'err')}finally{locked(false)}});
   $('codeTab').addEventListener('click',()=>showMode('code'));
   $('cmAutoMetadata').addEventListener('change',()=>{for(const id of ['cmDuration','cmFps','cmResolution','cmAspect'])$(id).disabled=$('cmAutoMetadata').checked});
-  $('cmProvider').addEventListener('change',()=>{
-    const ollama=$('cmProvider').value==='ollama';$('cmModel').value=ollama?(health?.models?.[0]||''):(cmHealth?.model||'');$('cmModels').replaceChildren();
-    if(ollama)for(const model of health?.models||[])$('cmModels').append(new Option(model,model));
+  function providerHint(){
+    const provider=$('cmProvider').value,ollama=provider==='ollama',codex=provider==='codex';
+    $('cmAccount').hidden=!codex;
+    $('cmModel').placeholder=codex?'Automatic · Codex default':ollama?'Choose an installed Ollama model':'Set OPENAI_MODEL or enter model';
     $('cmAutoReview').disabled=ollama;if(ollama)$('cmAutoReview').checked=false;
+    $('cmProviderHint').textContent=codex?'Uses your ChatGPT subscription through Codex. No API key; subscription limits apply. References and Auto Review use the same account. Sign in once using the button above.':ollama?'Ollama runs locally. Choose an installed coding model; image references require vision support.':'OpenAI API requires OPENAI_API_KEY on the backend and is billed separately from ChatGPT. References and review frames are sent to OpenAI.';
+  }
+  $('cmProvider').addEventListener('change',()=>{
+    const provider=$('cmProvider').value;$('cmModel').value=provider==='ollama'?(health?.models?.[0]||''):provider==='codex'?(cmHealth?.codex_model||''):(cmHealth?.model||'');$('cmModels').replaceChildren();
+    if(provider==='ollama')for(const model of health?.models||[])$('cmModels').append(new Option(model,model));providerHint();
+  });
+  $('cmRefresh').addEventListener('click',async()=>{try{await refresh();showStatus(cmHealth.message,cmHealth.ready?'ok':'')}catch(e){showStatus(e.message,'err')}});
+  $('cmSignIn').addEventListener('click',async()=>{
+    $('cmSignIn').disabled=true;
+    try{
+      const start=await request('/api/code-motion/account/login',{});$('cmAccountStatus').textContent=start.message;
+      while(true){const r=await fetch('/api/code-motion/account'),account=await r.json();$('cmAccountStatus').textContent=account.message;if(account.status!=='running')break;await new Promise(resolve=>setTimeout(resolve,1500))}
+      await refresh();
+    }catch(e){$('cmAccountStatus').textContent=e.message}finally{$('cmSignIn').disabled=false}
+  });
+  $('cmSetup').addEventListener('click',async()=>{
+    if(busy)return;locked(true);$('cmSetup').disabled=true;
+    try{await request('/api/code-motion/setup',{});while(true){const r=await fetch('/api/code-motion/setup'),setup=await r.json();$('cmDiagnostics').textContent=setup.log||setup.message;showStatus(setup.message,setup.status==='error'?'err':'');if(setup.status!=='running')break;await new Promise(resolve=>setTimeout(resolve,1500))}await refresh()}
+    catch(e){showStatus(e.message,'err')}finally{$('cmSetup').disabled=false;locked(false)}
   });
   $('cmResolution').addEventListener('change',()=>{$('cmAspect').value=$('cmResolution').value==='vertical'?'9:16':'16:9'});
   $('cmStyle').addEventListener('change',()=>{if($('cmStyle').value==='vertical'){$('cmResolution').value='vertical';$('cmAspect').value='9:16'}if($('cmStyle').value==='overlay'){$('cmTransparent').checked=true;$('cmFormat').value='prores'}});

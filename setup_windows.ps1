@@ -7,10 +7,19 @@ function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "$Program exited with code $LASTEXITCODE" }
 }
 
+function Refresh-ToolPath {
+    $paths = @($env:Path, [Environment]::GetEnvironmentVariable('Path','Machine'), [Environment]::GetEnvironmentVariable('Path','User'),
+        (Join-Path $env:ProgramFiles 'nodejs'), (Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin'), (Join-Path $env:APPDATA 'npm'))
+    $env:Path = ($paths | Where-Object { $_ }) -join ';'
+}
+
 function Install-Package([string]$Id) {
+    & winget.exe list --id $Id --exact --accept-source-agreements *> $null
+    if ($LASTEXITCODE -eq 0) { Write-Output "$Id is already installed."; return }
     Write-Output "Installing/checking $Id with WinGet..."
     Invoke-Checked 'winget.exe' @('install', '--id', $Id, '--exact', '--source', 'winget',
         '--silent', '--no-upgrade', '--accept-package-agreements', '--accept-source-agreements')
+    Refresh-ToolPath
 }
 
 function Get-Python311 {
@@ -24,6 +33,7 @@ function Get-Python311 {
     return @()
 }
 
+Refresh-ToolPath
 Write-Output 'Motion Studio Windows setup: Python 3.11, Manim, FFmpeg, Ollama, a small planning model, and ComfyUI Desktop.'
 if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
     throw 'WinGet is missing. Install Microsoft App Installer, then retry Windows setup.'
@@ -50,6 +60,8 @@ Invoke-Checked $venvPython @('-m', 'manim', '--version')
 
 Install-Package 'Gyan.FFmpeg'
 Install-Package 'OpenJS.NodeJS.LTS'
+Refresh-ToolPath
+if (Get-Command npm.cmd -ErrorAction SilentlyContinue) { Invoke-Checked 'npm.cmd' @('ci', '--prefix', 'code-motion') }
 Write-Output 'Code Motion: install/start Docker Desktop with WSL2 Linux containers, then run setup_code_motion.ps1.'
 Install-Package 'Ollama.Ollama'
 Install-Package 'Comfy.ComfyUI-Desktop'

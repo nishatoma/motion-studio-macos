@@ -51,6 +51,22 @@ def code_studio():
             CODE_STUDIO = code_motion.Studio(JOBS_DIR)
     return CODE_STUDIO
 
+CODE_SETUP_LOCK = threading.Lock()
+CODE_SETUP = {'status':'idle','message':'Code Motion setup has not been started.','log':''}
+
+def run_code_setup():
+    try:
+        process=subprocess.Popen(windows_support.code_setup_command(ROOT),cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding='utf-8',errors='replace')
+        for line in process.stdout:
+            with CODE_SETUP_LOCK:
+                CODE_SETUP['log']=(CODE_SETUP['log']+line)[-24000:]
+                CODE_SETUP['message']=line.strip() or CODE_SETUP['message']
+        code=process.wait()
+        with CODE_SETUP_LOCK:
+            CODE_SETUP.update(status='complete' if code==0 else 'error',message='Code Motion setup finished. Refresh readiness.' if code==0 else 'Code Motion setup failed. See the setup log.')
+    except (OSError,ValueError) as exc:
+        with CODE_SETUP_LOCK: CODE_SETUP.update(status='error',message=str(exc))
+
 SETUP_LOCK = threading.Lock()
 SETUP: dict[str, Any] = {"status": "idle", "message": "Windows setup has not been started.", "log": ""}
 
@@ -1302,6 +1318,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/code-motion/health":
                 return self._json(200, {**studio.health(), "token": CODE_MOTION_TOKEN})
+            if path == "/api/code-motion/setup":
+                with CODE_SETUP_LOCK: return self._json(200,dict(CODE_SETUP))
+            if path == "/api/code-motion/account":
+                return self._json(200,{**studio.subscription.status(),**studio.subscription.login_status()})
             if path == "/api/code-motion/jobs":
                 with studio.lock:
                     jobs = sorted((studio.get(id) for id in studio.jobs), key=lambda j: j['created'], reverse=True)[:50]
@@ -1334,6 +1354,17 @@ class Handler(BaseHTTPRequestHandler):
             if length > 40000: return self._json(413, {"error": "Settings request too large."})
             body = json.loads(data)
             if not isinstance(body, dict): raise ValueError("Expected a JSON object.")
+            if self.path == "/api/code-motion/account/login":
+                return self._json(202,studio.subscription.sign_in())
+            if self.path == "/api/code-motion/setup":
+                readiness=studio.health()
+                if not readiness.get('checks',{}).get('linux_containers'):
+                    raise ValueError(readiness['message'])
+                with CODE_SETUP_LOCK:
+                    if CODE_SETUP['status']=='running':return self._json(409,{'error':'Code Motion setup is already running.'})
+                    CODE_SETUP.update(status='running',message='Installing Codex and building the renderer…',log='')
+                threading.Thread(target=run_code_setup,daemon=True).start()
+                return self._json(202,{'status':'running'})
             if self.path == "/api/code-motion/styles":
                 return self._json(201, {"id":studio.save_style(body.get("name",""),body.get("direction",""))})
             if self.path == "/api/code-motion/jobs":
