@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import platform
 import shutil
+import sys
 from pathlib import Path
 
 
@@ -42,20 +43,23 @@ def tool_binary(name: str) -> str | None:
     found = shutil.which(name)
     if found:
         return found
+    if platform.system() == "Darwin":
+        candidates={'docker':[Path('/Applications/Docker.app/Contents/Resources/bin/docker'),Path('/usr/local/bin/docker')], 'node':[Path('/opt/homebrew/bin/node'),Path('/usr/local/bin/node')], 'npm':[Path('/opt/homebrew/bin/npm'),Path('/usr/local/bin/npm')], 'ffmpeg':[Path('/opt/homebrew/bin/ffmpeg'),Path('/usr/local/bin/ffmpeg')], 'ffprobe':[Path('/opt/homebrew/bin/ffprobe'),Path('/usr/local/bin/ffprobe')]}.get(name,[])
+        return next((str(path) for path in candidates if path.is_file()),None)
     if platform.system() != "Windows":
         return None
     program_files = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
     local = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData/Local")))
     candidates = {
         "node": [program_files / "nodejs/node.exe", local / "Programs/nodejs/node.exe"],
-        "docker": [program_files / "Docker/Docker/resources/bin/docker.exe"],
+        "docker": [program_files / "Docker/Docker/resources/bin/docker.exe",local / "Programs/DockerDesktop/resources/bin/docker.exe"],
         "ffmpeg": [local / "Microsoft/WinGet/Links/ffmpeg.exe"],
         "ffprobe": [local / "Microsoft/WinGet/Links/ffprobe.exe"],
     }.get(name, [])
+    if name in {'ffmpeg','ffprobe'}:
+        candidates.extend((local/'Microsoft/WinGet/Packages').glob(f'*FFmpeg*/**/bin/{name}.exe'))
     return next((str(path) for path in candidates if path.is_file()), None)
 
 
 def code_setup_command(root: Path) -> list[str]:
-    if platform.system() == "Windows":
-        return ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(root / "setup_code_motion.ps1")]
-    return ["bash",str(root / "setup_code_motion.command")]
+    return [sys.executable,str(root/'code_motion_setup.py')]

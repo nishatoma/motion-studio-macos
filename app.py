@@ -29,11 +29,12 @@ import local_video
 import motion_canvas_export
 import wan_video
 import windows_support
+import code_motion_setup
 
 ROOT = Path(__file__).resolve().parent
 WEB = ROOT / "web"
-BUILD_ID = "2026.10.13.auth-models.3"
-CODE_MOTION_API_VERSION = 3
+BUILD_ID = "2026.10.13.renderer-setup.4"
+CODE_MOTION_API_VERSION = 4
 JOBS_DIR = windows_support.output_dir()
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.environ.get("MOTION_STUDIO_PORT", "8765"))
@@ -53,20 +54,21 @@ def code_studio():
     return CODE_STUDIO
 
 CODE_SETUP_LOCK = threading.Lock()
-CODE_SETUP = {'status':'idle','message':'Code Motion setup has not been started.','log':''}
+CODE_SETUP_CANCEL = threading.Event()
+CODE_SETUP = {'status':'idle','message':'Renderer preparation has not been started.','stage':'idle','progress':0,'log':''}
 
-def run_code_setup():
-    try:
-        process=subprocess.Popen(windows_support.code_setup_command(ROOT),cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding='utf-8',errors='replace')
-        for line in process.stdout:
-            with CODE_SETUP_LOCK:
-                CODE_SETUP['log']=(CODE_SETUP['log']+line)[-24000:]
-                CODE_SETUP['message']=line.strip() or CODE_SETUP['message']
-        code=process.wait()
+def run_code_setup(provider='codex'):
+    def emit(value):
         with CODE_SETUP_LOCK:
-            CODE_SETUP.update(status='complete' if code==0 else 'error',message='Code Motion setup finished. Refresh readiness.' if code==0 else 'Code Motion setup failed. See the setup log.')
-    except (OSError,ValueError) as exc:
-        with CODE_SETUP_LOCK: CODE_SETUP.update(status='error',message=str(exc))
+            CODE_SETUP.update(stage=value['stage'],message=value['message'])
+            if value.get('progress'):CODE_SETUP['progress']=value['progress']
+            CODE_SETUP['log']=(CODE_SETUP['log']+value.get('log',value['message']+'\n'))[-24000:]
+    try:
+        code_motion_setup.prepare(ROOT,emit,CODE_SETUP_CANCEL,install_codex=provider=='codex')
+        with CODE_SETUP_LOCK:
+            CODE_SETUP.update(status='complete',stage='Ready',progress=1,message='Renderer prepared. Generate your preview.')
+    except (OSError,ValueError,subprocess.SubprocessError) as exc:
+        with CODE_SETUP_LOCK: CODE_SETUP.update(status='cancelled' if CODE_SETUP_CANCEL.is_set() else 'error',message=str(exc),log=(CODE_SETUP['log']+'\n'+str(exc))[-24000:])
 
 SETUP_LOCK = threading.Lock()
 SETUP: dict[str, Any] = {"status": "idle", "message": "Windows setup has not been started.", "log": ""}
@@ -1318,7 +1320,7 @@ class Handler(BaseHTTPRequestHandler):
         studio = code_studio()
         try:
             if path == "/api/code-motion/health":
-                return self._json(200, {**studio.health(), "token": CODE_MOTION_TOKEN,"api_version":CODE_MOTION_API_VERSION,"build":BUILD_ID,"capabilities":["subscription-login","model-picker"]})
+                return self._json(200, {**studio.health(), "token": CODE_MOTION_TOKEN,"api_version":CODE_MOTION_API_VERSION,"build":BUILD_ID,"capabilities":["subscription-login","model-picker","renderer-prepare"]})
             if path == "/api/code-motion/setup":
                 with CODE_SETUP_LOCK: return self._json(200,dict(CODE_SETUP))
             if path == "/api/code-motion/models":
@@ -1360,14 +1362,19 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict): raise ValueError("Expected a JSON object.")
             if path in {"/api/code-motion/account/login","/api/code-motion/auth/login","/api/code-motion/login"}:
                 return self._json(202,studio.subscription.sign_in())
+            if path == "/api/code-motion/setup/cancel":
+                CODE_SETUP_CANCEL.set();return self._json(202,{'message':'Cancelling renderer preparation…'})
             if path == "/api/code-motion/setup":
+                provider=body.get('provider','codex')
+                if provider not in {'codex','openai','ollama'}:raise ValueError('Choose a supported AI provider.')
                 readiness=studio.health()
-                if not readiness.get('checks',{}).get('linux_containers'):
+                if not readiness.get('can_setup'):
                     raise ValueError(readiness['message'])
                 with CODE_SETUP_LOCK:
-                    if CODE_SETUP['status']=='running':return self._json(409,{'error':'Code Motion setup is already running.'})
-                    CODE_SETUP.update(status='running',message='Installing Codex and building the renderer…',log='')
-                threading.Thread(target=run_code_setup,daemon=True).start()
+                    if CODE_SETUP['status']=='running':return self._json(202,dict(CODE_SETUP))
+                    CODE_SETUP_CANCEL.clear()
+                    CODE_SETUP.update(status='running',stage='Checking Docker',progress=0,message='Preparing the animation renderer…',log='')
+                threading.Thread(target=run_code_setup,args=(provider,),daemon=True).start()
                 return self._json(202,{'status':'running'})
             if path == "/api/code-motion/styles":
                 return self._json(201, {"id":studio.save_style(body.get("name",""),body.get("direction",""))})
@@ -1576,6 +1583,7 @@ def main() -> None:
         print("\nStopping Motion Studio…")
     finally:
         if CODE_STUDIO is not None:
+            CODE_SETUP_CANCEL.set()
             CODE_STUDIO.shutdown()
         server.server_close()
 

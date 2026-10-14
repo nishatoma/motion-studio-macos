@@ -1,19 +1,9 @@
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
-$env:Path = (@($env:Path, [Environment]::GetEnvironmentVariable('Path','Machine'), [Environment]::GetEnvironmentVariable('Path','User'), (Join-Path $env:ProgramFiles 'nodejs'), (Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin')) | Where-Object { $_ }) -join ';'
-function Invoke-Checked([string]$Program, [string[]]$Arguments) {
-    & $Program @Arguments
-    if ($LASTEXITCODE -ne 0) { throw "$Program exited with code $LASTEXITCODE" }
-}
-if (-not (Get-Command node.exe -ErrorAction SilentlyContinue)) {
-    throw 'Install Node.js 22 LTS or newer, then restart this terminal.'
-}
-Invoke-Checked 'node.exe' @('-e', 'if (Number(process.versions.node.split(".")[0]) < 22) throw Error("Node.js 22 or newer required")')
-if (-not (Get-Command docker.exe -ErrorAction SilentlyContinue)) {
-    throw 'Install/start Docker Desktop with WSL2 Linux containers, then retry.'
-}
-Invoke-Checked 'docker.exe' @('info')
-Invoke-Checked 'npm.cmd' @('ci', '--prefix', 'code-motion')
-Invoke-Checked 'npm.cmd' @('test', '--prefix', 'code-motion')
-Invoke-Checked 'docker.exe' @('build', '-t', 'motion-studio-remotion:1', 'code-motion')
-Write-Output 'Code Motion ready. Choose ChatGPT subscription and Sign in with ChatGPT, or set OPENAI_API_KEY and OPENAI_MODEL for API use, then restart Motion Studio.'
+$pythonPath = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
+$scriptPath = Join-Path $PSScriptRoot 'code_motion_setup.py'
+if (Test-Path $pythonPath) { & $pythonPath $scriptPath }
+elseif (Get-Command python.exe -ErrorAction SilentlyContinue) { & python.exe $scriptPath }
+elseif (Get-Command py.exe -ErrorAction SilentlyContinue) { & py.exe -3.11 $scriptPath }
+else { throw 'Python 3.11 was not found. Launch start_windows.bat once, then retry.' }
+exit $LASTEXITCODE

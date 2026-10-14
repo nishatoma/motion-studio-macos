@@ -12,6 +12,8 @@ Read [Code Motion setup, architecture, Resolve workflow and example prompts](doc
 
 The **Generation model** dropdown includes GPT-5.6 Sol and other presets, loads the signed-in Codex model catalog, and supports custom model IDs. If sign-in says **Not found** after updating, close the running Motion Studio command window, relaunch `start_windows.bat` (Windows) or `start.command` (macOS), then reload the dashboard. Refreshing the browser alone does not reload Python. The dashboard now detects that version mismatch; this does not require repeating Windows setup.
 
+**Docker already running?** Click **Generate preview**. If the animation renderer is missing, the dashboard prepares it once, shows progress, and continues with generation. **Prepare renderer** runs the same process manually; **Check renderer** shows connection details. Preparation reuses installed Docker/Codex tools, reports the exact failing step, and can be cancelled. Docker Desktop running does not by itself create Motion Studio's renderer. On Windows/macOS, the app can recover a reachable local Docker Desktop Linux connection without changing your global Docker context.
+
 
 A local browser dashboard for short video assets for DaVinci Resolve. **Abstract video** uses Wan MLX or LTX on Apple silicon; on Windows it uses a local ComfyUI API workflow and an NVIDIA GPU. **Data graphics** uses Ollama and Manim for precise charts and labeled diagrams on both systems. An optional Motion Canvas project export creates editable vector scenes. Model output is never executed as Python or TypeScript.
 

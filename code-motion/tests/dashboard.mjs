@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 const launcher=`
 from pathlib import Path
+import time
 import app
 app.PORT=8768
 app.JOBS_DIR=Path('/tmp/motion-studio-ui-test')
@@ -18,6 +19,14 @@ def login():
     return dict(studio.subscription.login_state)
 studio.subscription.sign_in=login
 studio.subscription._list_models=lambda:[{'id':'gpt-5.6-sol','name':'GPT-5.6 Sol (account)'},{'id':'gpt-6.1-sol','name':'GPT-6.1 Sol (account)'}]
+prepared=[False]
+studio.health=lambda:{'ready':prepared[0],'can_setup':True,'auto_prepare':not prepared[0],'message':'Renderer ready.' if prepared[0] else 'Docker is connected. Prepare the renderer once.','docker_connection':'desktop-linux','checks':{'docker_running':True,'linux_containers':True,'renderer_image':prepared[0],'ffprobe':True,'ffmpeg':True},'subscription':studio.subscription.status(),'login':studio.subscription.login_status(),'styles':studio.styles(),'model':'','codex_model':''}
+def prepare(root,emit,cancel_event,install_codex=True):
+    emit({'stage':'Building renderer','message':'Building the renderer for first use','progress':0.35})
+    time.sleep(0.2)
+    prepared[0]=True
+    emit({'stage':'Ready','message':'Renderer ready','progress':1})
+app.code_motion_setup.prepare=prepare
 app.main()
 `;
 const app=spawn(process.env.PYTHON||'python',['-c',launcher],{cwd:path.resolve('..'),stdio:'ignore',env:{...process.env,CODEX_MODEL:'',OPENAI_MODEL:''}});
@@ -57,7 +66,11 @@ try {
  },{times:1});
  const preview={id:'aaaaaaaaaaaa',action:'generate',status:'complete',progress:1,message:'Preview ready',video:'/example.mp4',design_source:'/Scene.tsx',history:[],design_notes:'Readable alpha overlay',created:1};
  await page.route('**/api/code-motion/jobs/aaaaaaaaaaaa',route=>route.fulfill({json:preview}));
- await page.click('#cmGenerate');await page.waitForSelector('#cmResultControls:not([hidden])');
+ const setupResponse=page.waitForResponse(r=>r.url().endsWith('/code-motion/setup') && r.request().method()==='POST');
+ await page.click('#cmGenerate');assert.equal((await setupResponse).status(),202);
+ await page.waitForSelector('#cmResultControls:not([hidden])');
+ assert.match(await page.locator('#cmSetupLog').textContent(),/first use/);
+ assert.match(await page.locator('#cmReadiness').textContent(),/ready/);
  await page.waitForFunction(()=>!document.getElementById('cmRevise').disabled);
  await page.selectOption('#cmModel','gpt-6.1-sol');await page.fill('#cmRevision','Make the counter bigger');
  await page.route('**/api/code-motion/jobs/aaaaaaaaaaaa/revise',async route=>{
@@ -75,6 +88,14 @@ try {
  await page.click('#cmExport');await page.waitForFunction(()=>document.getElementById('resultActions').textContent.includes('Download prores'));
  await page.click('#graphicsTab');assert.equal(await page.locator('#graphicsFields').isVisible(),true);
  await page.click('#abstractTab');assert.equal(await page.locator('#abstractFields').isVisible(),true);await page.click('#codeTab');
+ const preparedHealth=await (await fetch('http://127.0.0.1:8768/api/code-motion/health')).json();
+ let failedSetupJobCalls=0;
+ await page.route('**/api/code-motion/health',route=>route.fulfill({json:{...preparedHealth,ready:false,auto_prepare:true}}));
+ await page.route('**/api/code-motion/setup',route=>route.fulfill({json:route.request().method()==='POST'?{status:'running'}:{status:'error',message:'Installing dependencies failed (exit 7): download blocked',log:'Exact dependency error: download blocked'}}));
+ await page.route('**/api/code-motion/jobs',route=>{failedSetupJobCalls++;return route.fulfill({status:400,json:{error:'Generation must not start after failed setup'}})});
+ await page.click('#cmGenerate');await page.waitForFunction(()=>document.getElementById('status').textContent.includes('download blocked'));
+ assert.equal(failedSetupJobCalls,0);assert.match(await page.locator('#cmSetupLog').textContent(),/Exact dependency error/);
+ await page.unroute('**/api/code-motion/health');await page.unroute('**/api/code-motion/setup');await page.unroute('**/api/code-motion/jobs');
  // A missing route now gives instructions; it no longer surfaces a bare Not found.
  await page.route('**/api/code-motion/account/login',route=>route.fulfill({status:404,json:{error:'Not found'}}));
  await page.click('#cmSignIn');await page.waitForFunction(()=>document.getElementById('cmAccountStatus').textContent.includes('restart start_windows.bat'));
@@ -88,5 +109,5 @@ try {
  await page.waitForFunction(()=>!document.getElementById('cmSignIn').disabled);
  fs.mkdirSync('smoke-output',{recursive:true});await page.screenshot({path:'smoke-output/dashboard.png',fullPage:true});
  assert.deepEqual(errors,[]);
- console.log('PASS: real sign-in HTTP route (CLI mocked), account model picker, exact generation/revision models, custom IDs, stale-server/404 messages, tabs, styles, approval and export. Render jobs mocked.');
+ console.log('PASS: automatic first-use preparation through real HTTP routes (setup process mocked), setup failure stops generation with exact log, sign-in/model picker, revision models, stale-server checks, tabs, styles, approval and export. Render jobs mocked.');
 } finally {if(browser)await browser.close();app.kill('SIGTERM')}

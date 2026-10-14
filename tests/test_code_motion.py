@@ -60,12 +60,13 @@ class CodeMotionTest(unittest.TestCase):
             with self.assertRaises(ValueError):self.studio.asset(id)
         with self.assertRaises(ValueError):self.studio.file('a'*12,'../keys')
     def test_secure_worker_command_and_timeout_cleanup(self):
-        id=self.start();process=MagicMock();process.stdout=iter(['{"stage":"complete","progress":1}\n']);process.wait.return_value=0;process.poll.return_value=0
+        id=self.start();process=MagicMock();process.stdout=io.StringIO('{"stage":"complete","progress":1}\n');process.wait.return_value=0;process.poll.return_value=0
+        self.studio.runtime={'command':['docker','--context','desktop-linux'],'env':{'PATH':'tools'},'linux':True}
         with patch('code_motion.os.chown'),patch('code_motion.subprocess.Popen',return_value=process) as spawn,patch('code_motion.subprocess.run') as cleanup:
             self.studio.run_worker(id,'preview')
         cmd=spawn.call_args.args[0]
         self.assertIn('--network',cmd);self.assertEqual(cmd[cmd.index('--network')+1],'none');self.assertIn('--read-only',cmd);self.assertIn('no-new-privileges',cmd);self.assertIn('--cap-drop',cmd);self.assertIn('--memory',cmd)
-        self.assertEqual(cmd.count('--mount'),1);self.assertNotIn('--env',cmd);self.assertNotIn('OPENAI_API_KEY',' '.join(cmd));self.assertEqual(cleanup.call_args.args[0],[cmd[0],'rm','-f','motion-studio-'+id])
+        self.assertEqual(cmd.count('--mount'),1);self.assertNotIn('--env',cmd);self.assertNotIn('OPENAI_API_KEY',' '.join(cmd));self.assertEqual(cleanup.call_args.args[0],['docker','--context','desktop-linux','rm','-f','motion-studio-'+id]);self.assertEqual(spawn.call_args.kwargs['env'],cleanup.call_args.kwargs['env'])
     def test_no_unsafe_host_fallback(self):
         with patch.object(self.studio,'health',return_value={'ready':False}),self.assertRaisesRegex(ValueError,'Docker'):
             self.studio.start({**BODY,'provider':'ollama'})
@@ -114,6 +115,29 @@ class CodeMotionTest(unittest.TestCase):
         self.assertNotIn('secret',str(error.exception))
 
 class CodeMotionHTTPTest(unittest.TestCase):
+    def test_setup_routes_preserve_stage_errors_and_cancel_require_token(self):
+        with tempfile.TemporaryDirectory() as tmp,patch.object(app,'CODE_STUDIO',cm.Studio(Path(tmp))):
+            server=ThreadingHTTPServer(('127.0.0.1',0),app.Handler);threading.Thread(target=server.serve_forever,daemon=True).start();base=f'http://127.0.0.1:{server.server_port}'
+            headers={'X-Code-Motion-Token':app.CODE_MOTION_TOKEN,'Content-Type':'application/json'}
+            try:
+                with patch.object(app.CODE_STUDIO,'health',return_value={'can_setup':True}),patch('app.run_code_setup') as runner:
+                    with urllib.request.urlopen(urllib.request.Request(base+'/api/code-motion/setup',data=b'{}',headers=headers)) as response:self.assertEqual(response.status,202)
+                    for _ in range(20):
+                        if runner.called:break
+                        threading.Event().wait(.01)
+                    runner.assert_called_once()
+                    with urllib.request.urlopen(urllib.request.Request(base+'/api/code-motion/setup',data=b'{}',headers=headers)) as response:self.assertEqual(response.status,202)
+                    runner.assert_called_once()
+                with patch('code_motion_setup.prepare',side_effect=ValueError('Installing dependencies failed (exit 7): network blocked')):app.run_code_setup()
+                with urllib.request.urlopen(base+'/api/code-motion/setup') as response:
+                    data=json.load(response);self.assertEqual(data['status'],'error');self.assertIn('network blocked',data['message']);self.assertIn('exit 7',data['log'])
+                with self.assertRaises(urllib.error.HTTPError) as error:urllib.request.urlopen(urllib.request.Request(base+'/api/code-motion/setup/cancel',data=b'{}'))
+                self.assertEqual(error.exception.code,403)
+                with urllib.request.urlopen(urllib.request.Request(base+'/api/code-motion/setup/cancel',data=b'{}',headers=headers)) as response:self.assertEqual(response.status,202)
+                self.assertTrue(app.CODE_SETUP_CANCEL.is_set())
+            finally:
+                app.CODE_SETUP_CANCEL.clear();app.CODE_SETUP.update(status='idle',message='idle',log='');server.shutdown();server.server_close()
+
     def test_sign_in_routes_version_handshake_and_model_catalog(self):
         with tempfile.TemporaryDirectory() as tmp,patch.object(app,'CODE_STUDIO',cm.Studio(Path(tmp))):
             studio=app.CODE_STUDIO;subscription=studio.subscription

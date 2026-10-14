@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Motion Studio · Local</title><meta name="motion-studio-api-version" content="3">
+  <title>Motion Studio · Local</title><meta name="motion-studio-api-version" content="4">
   <style>
     :root{color-scheme:dark;--bg:#07131f;--panel:#0d1d2b;--line:#1c3547;--muted:#9aafbd;--text:#eef7fb;--aqua:#62e6d5;--gold:#f6c76b}
     *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 15% 0%,#143044 0,transparent 40%),var(--bg);color:var(--text);font:15px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}
@@ -29,8 +29,10 @@
       <div class="mode-switch"><button id="graphicsTab" type="button" aria-pressed="true">Data graphics</button><button id="abstractTab" type="button" aria-pressed="false">Abstract video</button><button id="codeTab" type="button" aria-pressed="false">Code Motion</button></div>
       <div id="codeFields" class="mode-fields" hidden>
         <p id="cmReadiness" class="hint" role="status">Checking Code Motion…</p>
-        <div class="small-actions"><button id="cmRefresh" class="linkbtn" type="button">Refresh readiness</button><button id="cmSetup" class="linkbtn" type="button">Set up Code Motion renderer</button></div>
-        <details class="log"><summary>Tool readiness and setup log</summary><pre id="cmDiagnostics">Checking tools…</pre></details>
+        <div class="small-actions"><button id="cmRefresh" class="linkbtn" type="button">Check renderer</button><button id="cmSetup" class="linkbtn" type="button">Prepare renderer</button><button id="cmSetupCancel" class="linkbtn" type="button" hidden>Cancel preparation</button></div>
+        <p class="hint">Docker runs the renderer. On first use, Generate prepares the animation tools automatically; this can take several minutes.</p>
+        <details class="log"><summary>Renderer connection details</summary><pre id="cmDiagnostics">Checking tools…</pre></details>
+        <details id="cmSetupDetails" class="log"><summary>Renderer preparation log</summary><pre id="cmSetupLog">No preparation needed yet.</pre></details>
         <label class="label" for="cmPrompt">Describe your animation</label>
         <textarea id="cmPrompt">Create an eight-second cinematic financial line chart showing an illustrative investment growing from $0 to $1 million over 35 years. Animate the curve, a spring-based dollar counter and a moving year marker. Label the chart as illustrative.</textarea>
         <div class="row"><div><label class="label" for="cmProvider">AI provider</label><select id="cmProvider"><option value="codex" selected>ChatGPT subscription · Codex</option><option value="openai">OpenAI API · API key</option><option value="ollama">Local Ollama</option></select></div><div><label class="label" for="cmModel">Generation model</label><select id="cmModel"><option value="">Automatic · Codex default</option><option value="gpt-5.6-sol">GPT-5.6 Sol</option></select><input id="cmCustomModel" placeholder="Custom model ID" hidden><p id="cmModelHint" class="hint">Sign in to load your account models. Presets depend on account availability.</p></div></div>
