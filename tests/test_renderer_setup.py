@@ -35,7 +35,7 @@ class RuntimeTest(unittest.TestCase):
 
 class PreparationTest(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name);self.events=[]
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name).resolve();self.events=[]
     def test_ready_renderer_skips_installs_and_builds(self):
         with patch('render_runtime.docker_connection',return_value=CONNECTION),patch('render_runtime.renderer_status',return_value=(True,'')),patch('codex_provider.command',return_value=['codex']),patch('code_motion_setup.run_step') as step:
             setup.prepare(self.root,self.events.append);step.assert_not_called()
