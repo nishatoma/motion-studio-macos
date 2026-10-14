@@ -71,3 +71,6 @@ public class DockerFixture {
     Remove-Item Env:MOCK_DOCKER_IMAGE,Env:MOCK_DOCKER_LOG,Env:MOCK_BUILD_FAIL,Env:DOCKER_HOST -ErrorAction SilentlyContinue
     $env:DOCKER_HOST = $previousDockerHost
 }
+# The negative case intentionally leaves a native exit code of 1. Successful
+# assertions must return 0 to the Actions wrapper after that expected failure.
+exit 0
