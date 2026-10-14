@@ -95,12 +95,12 @@ class ReadinessTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             studio=cm.Studio(Path(tmp))
             with patch.object(studio.subscription,'status',return_value={}),patch('windows_support.tool_binary',return_value=None):self.assertIn('not found',studio.health()['message'])
-            cases=[([subprocess.CompletedProcess([],1,'','')],'not running'),([subprocess.CompletedProcess([],0,'windows\n','')],'Switch'),([subprocess.CompletedProcess([],0,'linux\n',''),subprocess.CompletedProcess([],1,b'',b'')],'image is missing'),([subprocess.CompletedProcess([],0,'linux\n',''),subprocess.CompletedProcess([],0,b'',b'')],'Ready')]
+            cases=[([subprocess.CompletedProcess([],1,'','')],'could not connect'),([subprocess.CompletedProcess([],0,'windows\n','')],'switch'),([subprocess.CompletedProcess([],0,'linux\n',''),subprocess.CompletedProcess([],1,'','No such image')],'preparing once'),([subprocess.CompletedProcess([],0,'linux\n',''),subprocess.CompletedProcess([],0,'','')],'Renderer ready')]
             for responses,text in cases:
-                with self.subTest(text=text),patch.object(studio.subscription,'status',return_value={}),patch('windows_support.tool_binary',side_effect=lambda name:'/installed/'+name),patch('code_motion.subprocess.run',side_effect=responses):
-                    value=studio.health();self.assertIn(text,value['message']);self.assertEqual(value['ready'],text=='Ready')
+                with self.subTest(text=text),patch('render_runtime.platform.system',return_value='Linux'),patch.object(studio.subscription,'status',return_value={}),patch('windows_support.tool_binary',side_effect=lambda name:'/installed/'+name),patch('code_motion.subprocess.run',side_effect=responses):
+                    value=studio.health();self.assertIn(text,value['message']);self.assertEqual(value['ready'],text=='Renderer ready');self.assertEqual(value['auto_prepare'],text=='preparing once')
     def test_code_setup_is_distinct_from_legacy_setup(self):
         with patch('windows_support.platform.system',return_value='Windows'):
-            self.assertIn('setup_code_motion.ps1',ws.code_setup_command(Path('/repo'))[-1]);self.assertIn('setup_windows.ps1',ws.setup_command(Path('/repo'))[-1])
+            self.assertIn('code_motion_setup.py',ws.code_setup_command(Path('/repo'))[-1]);self.assertIn('setup_windows.ps1',ws.setup_command(Path('/repo'))[-1])
 
 if __name__=='__main__':unittest.main()

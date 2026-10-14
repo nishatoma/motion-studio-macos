@@ -1,22 +1,22 @@
 /* Extends the existing dashboard; generated code is never evaluated in this page. */
 (() => {
-  let token='', currentJob=null, previewJob=null, assets=[], audio=null, cmHealth=null, compatible=false, modelCatalog=null;
+  let token='', currentJob=null, previewJob=null, assets=[], audio=null, cmHealth=null, compatible=false, modelCatalog=null, preparing=false;
   const expectedApi=Number(document.querySelector('meta[name="motion-studio-api-version"]').content);
   const restartMessage='The dashboard was updated, but the running Motion Studio server is older. Close its command window, restart start_windows.bat (or start.command), then reload this page.';
   const controls=['cmGenerate','cmRevise','cmRegenerate','cmExport'];
   controls.forEach(id=>$(id).disabled=true);
   async function request(url,body,headers={}) {
     const response=await fetch(url,{method:'POST',headers:{'X-Code-Motion-Token':token,'Content-Type':'application/json',...headers},body:body instanceof File?body:JSON.stringify(body)});
-    const data=await response.json();if(!response.ok)throw Error(response.status===404 && url.includes('/account/')?restartMessage:data.error||'Code Motion request failed');return data;
+    const data=await response.json();if(!response.ok)throw Error(response.status===404 && (url.includes('/account/')||url.includes('/setup'))?restartMessage:data.error||'Code Motion request failed');return data;
   }
   async function refresh() {
     const r=await fetch('/api/code-motion/health');if(!r.ok)throw Error('Code Motion backend unavailable');cmHealth=await r.json();token=cmHealth.token;
-    compatible=cmHealth.api_version>=expectedApi && ['subscription-login','model-picker'].every(c=>cmHealth.capabilities?.includes(c));
+    compatible=cmHealth.api_version>=expectedApi && ['subscription-login','model-picker','renderer-prepare'].every(c=>cmHealth.capabilities?.includes(c));
     $('cmSignIn').disabled=!compatible;
     controls.forEach(id=>$(id).disabled=!compatible||busy);
     if(!compatible){$('cmAccountStatus').textContent=restartMessage;$('cmReadiness').textContent=restartMessage;showStatus(restartMessage,'err');return false}
     $('cmReadiness').textContent=cmHealth.message;
-    $('cmDiagnostics').textContent=Object.entries(cmHealth.checks||{}).map(([name,ready])=>`${ready?'✓':'✗'} ${name.replaceAll('_',' ')}`).join('\n');
+    diagnostics();
     $('cmAccountStatus').textContent=cmHealth.subscription?.message||'Sign in with ChatGPT.';
     $('cmSignIn').disabled=cmHealth.login?.status==='running';
     providerHint();
@@ -25,6 +25,31 @@
     for(const [id,style] of Object.entries(cmHealth.styles)) {const option=document.createElement('option');option.value=id;option.textContent=style.name;$('cmStyle').append(option)}
     if([...$('cmStyle').options].some(o=>o.value===old))$('cmStyle').value=old;
     await history();return true;
+  }
+  function diagnostics(){
+    $('cmReadiness').textContent=cmHealth.message;
+    $('cmDiagnostics').textContent=`Connection: ${cmHealth.docker_connection||'default'}\n`+Object.entries(cmHealth.checks||{}).map(([name,ready])=>`${ready?'✓':'✗'} ${name.replaceAll('_',' ')}`).join('\n')+(cmHealth.diagnostics?'\n\n'+cmHealth.diagnostics:'');
+  }
+  async function checkRenderer(){
+    const response=await fetch('/api/code-motion/health');if(!response.ok)throw Error('Could not check the renderer connection.');
+    cmHealth=await response.json();token=cmHealth.token;diagnostics();
+    if(cmHealth.api_version<expectedApi||!cmHealth.capabilities?.includes('renderer-prepare'))throw Error(restartMessage);
+  }
+  async function prepareRenderer(){
+    if(!compatible)throw Error(restartMessage);
+    preparing=true;$('cmSetup').disabled=true;$('cmSetupCancel').hidden=false;$('cmSetupDetails').open=true;
+    showStatus('Preparing the animation renderer. Docker is already connected; first use can take several minutes.');
+    try{
+      await request('/api/code-motion/setup',{provider:$('cmProvider').value});
+      while(true){
+        const response=await fetch('/api/code-motion/setup');if(!response.ok)throw Error('Could not read renderer preparation progress.');
+        const setup=await response.json();$('cmSetupLog').textContent=setup.log||setup.message;$('cmProgress').value=setup.progress||0;showStatus(setup.message,setup.status==='error'?'err':'');
+        if(setup.status==='error'||setup.status==='cancelled')throw Error(setup.message);
+        if(setup.status==='complete')break;
+        await new Promise(resolve=>setTimeout(resolve,1000));
+      }
+      await checkRenderer();
+    }finally{preparing=false;$('cmSetup').disabled=false;$('cmSetupCancel').hidden=true}
   }
   async function history() {
     const r=await fetch('/api/code-motion/jobs'),data=await r.json();const select=$('cmHistory'),old=select.value;select.replaceChildren(new Option('Choose a saved job',''));
@@ -74,19 +99,22 @@
   });
   $('cmRefresh').addEventListener('click',async()=>{try{if(await refresh())showStatus(cmHealth.message,cmHealth.ready?'ok':'')}catch(e){showStatus(e.message,'err')}});
   $('cmSignIn').addEventListener('click',async()=>{
+    if(busy)return;
     if(!compatible){$('cmAccountStatus').textContent=restartMessage;return}
     $('cmSignIn').disabled=true;
     try{
+      if(!cmHealth?.subscription?.installed){locked(true);await prepareRenderer()}
       const start=await request('/api/code-motion/account/login',{});$('cmAccountStatus').textContent=start.message;
       while(true){const r=await fetch('/api/code-motion/account');if(!r.ok)throw Error(r.status===404?restartMessage:'Could not check sign-in status.');const account=await r.json();$('cmAccountStatus').textContent=account.message;if(account.status!=='running')break;await new Promise(resolve=>setTimeout(resolve,1500))}
       await refresh();
-    }catch(e){$('cmAccountStatus').textContent=e.message}finally{$('cmSignIn').disabled=!compatible}
+    }catch(e){$('cmAccountStatus').textContent=e.message}finally{$('cmSignIn').disabled=!compatible;if(busy)locked(false)}
   });
   $('cmSetup').addEventListener('click',async()=>{
-    if(!compatible){showStatus(restartMessage,'err');return}if(busy)return;locked(true);$('cmSetup').disabled=true;
-    try{await request('/api/code-motion/setup',{});while(true){const r=await fetch('/api/code-motion/setup'),setup=await r.json();$('cmDiagnostics').textContent=setup.log||setup.message;showStatus(setup.message,setup.status==='error'?'err':'');if(setup.status!=='running')break;await new Promise(resolve=>setTimeout(resolve,1500))}await refresh()}
-    catch(e){showStatus(e.message,'err')}finally{$('cmSetup').disabled=false;locked(false)}
+    if(busy)return;locked(true);
+    try{await prepareRenderer();await refresh();showStatus(cmHealth.message,cmHealth.ready?'ok':'')}
+    catch(e){showStatus(e.message,'err');$('cmSetupDetails').open=true}finally{locked(false)}
   });
+  $('cmSetupCancel').addEventListener('click',async()=>{try{await request('/api/code-motion/setup/cancel',{});showStatus('Cancelling renderer preparation…')}catch(e){showStatus(e.message,'err')}});
   $('cmResolution').addEventListener('change',()=>{$('cmAspect').value=$('cmResolution').value==='vertical'?'9:16':'16:9'});
   $('cmStyle').addEventListener('change',()=>{if($('cmStyle').value==='vertical'){$('cmResolution').value='vertical';$('cmAspect').value='9:16'}if($('cmStyle').value==='overlay'){$('cmTransparent').checked=true;$('cmFormat').value='prores'}});
   $('cmTransparent').addEventListener('change',()=>{if($('cmTransparent').checked)$('cmFormat').value='prores'});
@@ -113,6 +141,11 @@
   async function run(url,body) {
     if(busy)return;locked(true);$('cmProgress').value=0;showStatus('Starting Code Motion…');
     try {
+      if(body.format!=='project'){
+        await checkRenderer();
+        if(!cmHealth.ready && cmHealth.auto_prepare)await prepareRenderer();
+        if(!cmHealth.ready)throw Error(cmHealth.message);
+      }
       const {id}=await request(url,body);currentJob=id;
       while(true){const r=await fetch('/api/code-motion/jobs/'+id),job=await r.json();if(!r.ok)throw Error(job.error);await display(job);if(['complete','error','cancelled'].includes(job.status))break;await new Promise(resolve=>setTimeout(resolve,1000));}
       await history();
@@ -122,7 +155,7 @@
   $('cmRegenerate').addEventListener('click',()=>{try{run('/api/code-motion/jobs',input())}catch(e){showStatus(e.message,'err')}});
   $('cmRevise').addEventListener('click',()=>{if(!previewJob)return;const prompt=$('cmRevision').value.trim();if(!prompt){showStatus('Describe the revision.','err');return}run(`/api/code-motion/jobs/${previewJob}/revise`,{prompt,provider:$('cmProvider').value,model:selectedModel(),auto_review:$('cmAutoReview').checked,max_revisions:Number($('cmAttempts').value)})});
   $('cmExport').addEventListener('click',()=>{if(!previewJob)return;if(!$('cmApproved').checked){showStatus('Review the preview and tick approval before exporting.','err');return}run(`/api/code-motion/jobs/${previewJob}/export`,{format:$('cmFormat').value,approved:true})});
-  $('cmCancel').addEventListener('click',async()=>{if(!currentJob)return;try{await request(`/api/code-motion/jobs/${currentJob}/cancel`,{});showStatus('Cancellation requested.')}catch(e){showStatus(e.message,'err')}});
+  $('cmCancel').addEventListener('click',async()=>{if(preparing){$('cmSetupCancel').click();return}if(!currentJob)return;try{await request(`/api/code-motion/jobs/${currentJob}/cancel`,{});showStatus('Cancellation requested.')}catch(e){showStatus(e.message,'err')}});
   $('cmSaveStyle').addEventListener('click',async()=>{try{const result=await request('/api/code-motion/styles',{name:$('cmStyleName').value,direction:$('cmStyleDirection').value});await refresh();$('cmStyle').value=result.id;showStatus('Style saved.','ok')}catch(e){showStatus(e.message,'err')}});
   $('cmHistory').addEventListener('change',async()=>{if(busy||!$('cmHistory').value)return;try{const r=await fetch('/api/code-motion/jobs/'+$('cmHistory').value),job=await r.json();await display(job)}catch(e){showStatus(e.message,'err')}});
   refresh().catch(e=>{$('cmReadiness').textContent=e.message;$('cmAccountStatus').textContent=e.message});

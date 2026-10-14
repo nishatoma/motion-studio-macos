@@ -1,11 +1,25 @@
 name: Code Motion validation
 on:
   push:
-    branches: [feat/code-motion-remotion, fix/chatgpt-subscription-windows-readiness, fix/sign-in-endpoint-model-picker]
+    branches: [feat/code-motion-remotion, fix/chatgpt-subscription-windows-readiness, fix/sign-in-endpoint-model-picker, fix/code-motion-setup-readiness]
   pull_request:
 permissions:
   contents: read
 jobs:
+  windows-renderer-setup:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m unittest discover -s tests -p test_renderer_setup.py -v
+      - shell: powershell
+        run: .\tests\windows_renderer_setup.ps1
   regression-and-render:
     runs-on: ubuntu-latest
     timeout-minutes: 30
