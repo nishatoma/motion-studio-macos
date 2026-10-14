@@ -82,8 +82,10 @@ def prepare(root,emit,cancel_event=None,install_codex=True):
         match=re.fullmatch(r'v?(\d+)\.\d+\.\d+.*',version)
         if not match or int(match[1])<22:raise SetupError(f'Node.js 22+ is required for ChatGPT support; found {version}. Update Node.js, then retry. Docker is already connected.')
         npm=npm_command(node)
-        run_step([*npm,'ci','--prefix',str(root/'code-motion')],root,runtime['env'],'Installing ChatGPT and editor dependencies',emit,900,cancel_event)
-        run_step([*npm,'test','--prefix',str(root/'code-motion')],root,runtime['env'],'Checking animation dependencies',emit,120,cancel_event)
+        dependency_env=dict(runtime['env'])
+        dependency_env['PATH']=str(Path(node).parent)+os.pathsep+dependency_env.get('PATH','')
+        run_step([*npm,'ci','--prefix',str(root/'code-motion')],root,dependency_env,'Installing ChatGPT and editor dependencies',emit,900,cancel_event)
+        run_step([*npm,'test','--prefix',str(root/'code-motion')],root,dependency_env,'Checking animation dependencies',emit,120,cancel_event)
     if not image:
         emit({'stage':'Building renderer','message':'Preparing the animation renderer for first use. This can take several minutes; Docker is already connected.','progress':.35})
         run_step([*runtime['command'],'build','--progress=plain','-t',render_runtime.IMAGE,str(root/'code-motion')],root,runtime['env'],'Building animation renderer',emit,1800,cancel_event)

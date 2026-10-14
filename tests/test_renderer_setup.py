@@ -53,6 +53,7 @@ class PreparationTest(unittest.TestCase):
         with patch('render_runtime.docker_connection',return_value=CONNECTION),patch('render_runtime.renderer_status',return_value=(True,'')),patch('codex_provider.command',side_effect=ValueError('missing')),patch('windows_support.tool_binary',return_value=str(node)),patch('code_motion_setup.subprocess.run',return_value=subprocess.CompletedProcess([],0,'v22.20.0\n','')) as version,patch('code_motion_setup.run_step') as step:
             setup.prepare(self.root,self.events.append)
         self.assertEqual(version.call_args.args[0],[str(node),'--version']);self.assertEqual(step.call_args_list[0].args[0][:3],[str(node),str(cli),'ci']);self.assertEqual(step.call_count,2)
+        self.assertEqual(step.call_args_list[0].args[2]['PATH'].split(os.pathsep)[0],str(node.parent))
     def test_homebrew_npm_entry_does_not_depend_on_env_node_path(self):
         node=self.root/'brew/bin/node';cli=self.root/'brew/libexec/lib/node_modules/npm/bin/npm-cli.js';cli.parent.mkdir(parents=True);cli.touch()
         self.assertEqual(setup.npm_command(str(node)),[str(node),str(cli)])
